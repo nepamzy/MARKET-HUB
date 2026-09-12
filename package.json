@@ -1,0 +1,25 @@
+{
+  "name": "market-hub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MARKET HUB — commerce, supply chain and logistics platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace apps/backend",
+    "dev:frontend": "npm run dev --workspace apps/frontend",
+    "build": "npm run build --workspace packages/shared && npm run build --workspace apps/backend && npm run build --workspace apps/frontend",
+    "build:backend": "npm run build --workspace packages/shared && npm run build --workspace apps/backend",
+    "build:frontend": "npm run build --workspace packages/shared && npm run build --workspace apps/frontend",
+    "test:backend": "npm run test --workspace apps/backend",
+    "typecheck:backend": "npm run typecheck --workspace apps/backend",
+    "typecheck:frontend": "npm run typecheck --workspace apps/frontend",
+    "lint:backend": "npm run lint --workspace apps/backend",
+    "lint:frontend": "npm run lint --workspace apps/frontend"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

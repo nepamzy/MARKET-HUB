@@ -1,0 +1,139 @@
+// MARKET HUB — Phase A data foundation.
+// Domains covered: identity (User, RefreshToken), organizations
+// (Organization, OrganizationMembership), and a minimal AuditLog for
+// security-relevant actions. See docs/DATABASE.md for rationale.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformRole {
+  PLATFORM_ADMIN
+  CUSTOMER
+  DRIVER
+}
+
+enum BusinessType {
+  PRODUCER_MANUFACTURER
+  WHOLESALER
+  RETAILER
+  DIRECT_BUSINESS
+  LOGISTICS_COMPANY
+}
+
+enum MembershipRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model User {
+  id            String        @id @default(uuid())
+  name          String
+  email         String        @unique
+  phone         String?
+  passwordHash  String
+  platformRole  PlatformRole  @default(CUSTOMER)
+  accountStatus AccountStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  memberships   OrganizationMembership[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]               @relation("ActorAuditLogs")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String    @unique
+  family            String
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  createdByIp       String?
+  userAgent         String?
+
+  @@index([userId])
+  @@index([family])
+  @@map("refresh_tokens")
+}
+
+model Organization {
+  id                 String              @id @default(uuid())
+  legalName          String
+  businessType       BusinessType
+  status             OrganizationStatus  @default(ACTIVE)
+  verificationStatus VerificationStatus  @default(PENDING)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  memberships OrganizationMembership[]
+  auditLogs   AuditLog[]                @relation("OrganizationAuditLogs")
+
+  @@index([businessType])
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id             String         @id @default(uuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           MembershipRole
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("organization_memberships")
+}
+
+/// Audit trail for security-relevant and administrative actions
+/// (Architecture Principles: "important financial, security and
+/// administrative actions should have an audit trail"). Deliberately
+/// minimal — not a general-purpose event log.
+model AuditLog {
+  id             String        @id @default(uuid())
+  actorUserId    String?
+  actor          User?         @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: SetNull)
+  organizationId String?
+  organization   Organization? @relation("OrganizationAuditLogs", fields: [organizationId], references: [id], onDelete: SetNull)
+  action         String
+  targetType     String?
+  targetId       String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  @@index([actorUserId])
+  @@index([organizationId])
+  @@index([action])
+  @@map("audit_logs")
+}
