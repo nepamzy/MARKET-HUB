@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUSINESS_TYPES, MEMBERSHIP_ROLES } from "./enums";
+import { BUSINESS_TYPES, MEMBERSHIP_ROLES, PERMISSION_RESOURCES } from "./enums";
 
 /**
  * Request contracts shared between the API and the frontend forms that
@@ -73,3 +73,29 @@ export const transferOwnershipSchema = z.object({
   newOwnerUserId: z.string().uuid("newOwnerUserId must be a valid UUID"),
 });
 export type TransferOwnershipInput = z.infer<typeof transferOwnershipSchema>;
+
+/**
+ * Business-scoped permission update (Phase 0.1). Body is a partial map of
+ * resource -> level; only the resources present are changed, so an owner
+ * can flip one permission without resending the whole set. OWNER-role
+ * members reject this at the route level (their access is never a table
+ * lookup) rather than in this schema, to keep the 400 message specific.
+ */
+const permissionLevelSchema = z.enum(["NONE", "VIEW", "EDIT"]);
+
+export const updateMemberPermissionsSchema = z
+  .object({
+    ORDERS: permissionLevelSchema.optional(),
+    INVENTORY: permissionLevelSchema.optional(),
+    PROCUREMENT: permissionLevelSchema.optional(),
+    PAYMENTS: permissionLevelSchema.optional(),
+    CATALOGUE: permissionLevelSchema.optional(),
+    CUSTOMERS: permissionLevelSchema.optional(),
+    KYC: permissionLevelSchema.optional(),
+    MEMBERS: permissionLevelSchema.optional(),
+    SETTINGS: permissionLevelSchema.optional(),
+  } satisfies Record<(typeof PERMISSION_RESOURCES)[number], z.ZodOptional<typeof permissionLevelSchema>>)
+  .refine((body) => Object.values(body).some((v) => v !== undefined), {
+    message: "At least one permission must be provided",
+  });
+export type UpdateMemberPermissionsInput = z.infer<typeof updateMemberPermissionsSchema>;

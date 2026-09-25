@@ -27,3 +27,69 @@ export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
 export const ORGANIZATION_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
 export type OrganizationStatus = (typeof ORGANIZATION_STATUSES)[number];
+
+/**
+ * Business-scoped permission catalogue (Phase 0.1). This layers fine-grained
+ * per-resource access on top of MembershipRole — it does NOT replace it.
+ * OWNER is never constrained by this table (see DEFAULT_PERMISSIONS below
+ * and organizationAuth middleware); MANAGER/STAFF get sane defaults that a
+ * row here can override per resource.
+ */
+export const PERMISSION_RESOURCES = [
+  "ORDERS",
+  "INVENTORY",
+  "PROCUREMENT",
+  "PAYMENTS",
+  "CATALOGUE",
+  "CUSTOMERS",
+  "KYC",
+  "MEMBERS",
+  "SETTINGS",
+] as const;
+export type PermissionResource = (typeof PERMISSION_RESOURCES)[number];
+
+export const PERMISSION_LEVELS = ["NONE", "VIEW", "EDIT"] as const;
+export type PermissionLevel = (typeof PERMISSION_LEVELS)[number];
+
+/**
+ * Default permission level per (MembershipRole, PermissionResource) pair,
+ * applied when no explicit MembershipPermission row exists for a member on
+ * that resource. OWNER is intentionally absent — OWNER always resolves to
+ * EDIT on everything and can never be looked up here (mirrors the existing
+ * "last owner can't be demoted" protection: ownership is never a partial or
+ * overridable access level).
+ */
+export const DEFAULT_PERMISSIONS: Record<
+  Exclude<MembershipRole, "OWNER">,
+  Record<PermissionResource, PermissionLevel>
+> = {
+  MANAGER: {
+    ORDERS: "EDIT",
+    INVENTORY: "EDIT",
+    PROCUREMENT: "EDIT",
+    PAYMENTS: "VIEW",
+    CATALOGUE: "EDIT",
+    CUSTOMERS: "EDIT",
+    KYC: "VIEW",
+    MEMBERS: "VIEW",
+    SETTINGS: "NONE",
+  },
+  STAFF: {
+    ORDERS: "VIEW",
+    INVENTORY: "VIEW",
+    PROCUREMENT: "VIEW",
+    PAYMENTS: "NONE",
+    CATALOGUE: "VIEW",
+    CUSTOMERS: "VIEW",
+    KYC: "NONE",
+    MEMBERS: "NONE",
+    SETTINGS: "NONE",
+  },
+};
+
+/** Ordering used to compare levels, e.g. hasAtLeast(level, "VIEW"). */
+export const PERMISSION_LEVEL_RANK: Record<PermissionLevel, number> = {
+  NONE: 0,
+  VIEW: 1,
+  EDIT: 2,
+};

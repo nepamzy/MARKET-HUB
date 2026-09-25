@@ -3,6 +3,8 @@ import type {
   BusinessType,
   MembershipRole,
   OrganizationStatus,
+  PermissionLevel,
+  PermissionResource,
   PlatformRole,
   VerificationStatus,
 } from "@market-hub/shared";
@@ -36,4 +38,9 @@ export interface Member {
   role: MembershipRole;
   createdAt: string;
   user: { id: string; name: string; email: string };
+}
+
+export interface MemberPermissions {
+  role: MembershipRole;
+  permissions: Record<PermissionResource, PermissionLevel>;
 }

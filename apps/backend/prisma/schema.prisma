@@ -43,6 +43,24 @@ enum AccountStatus {
   SUSPENDED
 }
 
+enum PermissionResource {
+  ORDERS
+  INVENTORY
+  PROCUREMENT
+  PAYMENTS
+  CATALOGUE
+  CUSTOMERS
+  KYC
+  MEMBERS
+  SETTINGS
+}
+
+enum PermissionLevel {
+  NONE
+  VIEW
+  EDIT
+}
+
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
@@ -59,9 +77,10 @@ model User {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  memberships   OrganizationMembership[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]               @relation("ActorAuditLogs")
+  memberships        OrganizationMembership[]
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]               @relation("ActorAuditLogs")
+  grantedPermissions MembershipPermission[]
 
   @@map("users")
 }
@@ -110,10 +129,34 @@ model OrganizationMembership {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  permissions MembershipPermission[]
+
   @@unique([organizationId, userId])
   @@index([userId])
   @@index([organizationId])
   @@map("organization_memberships")
+}
+
+/// Business-scoped, per-resource permission overrides layered on top of
+/// MembershipRole (Phase 0.1 — see docs/handoff/PHASE_0_MASTER_BLUEPRINT.md
+/// §6.1). A row here only needs to exist when an owner overrides the
+/// resource's role default (packages/shared DEFAULT_PERMISSIONS); absence
+/// of a row means "use the default for this member's role." OWNER-role
+/// memberships never have rows here — ownership is never a partial or
+/// overridable access level, enforced in the service layer, not the schema.
+model MembershipPermission {
+  id              String                  @id @default(uuid())
+  membershipId    String
+  membership      OrganizationMembership  @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  resource        PermissionResource
+  level           PermissionLevel
+  grantedByUserId String
+  grantedBy       User                    @relation(fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([membershipId, resource])
+  @@index([membershipId])
+  @@map("membership_permissions")
 }
 
 /// Audit trail for security-relevant and administrative actions
