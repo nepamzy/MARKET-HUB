@@ -85,9 +85,14 @@ function OrganizationDetailContent() {
               View members
             </Link>
             {(membershipRole === "OWNER" || membershipRole === "MANAGER") && (
-              <Link href={`/organizations/${organization.id}/invites`} className="btn-secondary w-full">
-                Invites &amp; join requests
-              </Link>
+              <>
+                <Link href={`/organizations/${organization.id}/onboarding`} className="btn-secondary w-full">
+                  Business profile &amp; verification
+                </Link>
+                <Link href={`/organizations/${organization.id}/invites`} className="btn-secondary w-full">
+                  Invites &amp; join requests
+                </Link>
+              </>
             )}
           </div>
         </section>

@@ -11,6 +11,7 @@ import { adminRouter } from "./modules/admin/admin.routes";
 import { authRouter } from "./modules/auth/auth.routes";
 import { healthRouter } from "./modules/health/health.routes";
 import { organizationInvitationsRouter, publicInvitesRouter } from "./modules/invitations/invitations.routes";
+import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
 import { usersRouter } from "./modules/users/users.routes";
 
@@ -51,6 +52,7 @@ export function createApp(): Express {
   app.use("/api/users", usersRouter);
   app.use("/api/organizations", organizationsRouter);
   app.use("/api/organizations", organizationInvitationsRouter);
+  app.use("/api/organizations", organizationOnboardingRouter);
   app.use("/api/invites", publicInvitesRouter);
   app.use("/api/admin", adminRouter);
 

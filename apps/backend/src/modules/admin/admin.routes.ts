@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
-import { VERIFICATION_STATUSES } from "@market-hub/shared";
+import { KYC_STATUSES, VERIFICATION_STATUSES, reviewKycSchema } from "@market-hub/shared";
 import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requirePlatformRole } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { ORGANIZATION_SELECT } from "../organizations/organizations.service";
+import { getKycSubmissionDetail, listKycSubmissions, reviewKycSubmission } from "../kyc/kyc.service";
 
 export const adminRouter = Router();
 
@@ -98,6 +99,46 @@ adminRouter.get("/users", validate(paginationSchema, "query"), async (req, res, 
       prisma.user.count(),
     ]);
     res.status(200).json({ users, page, pageSize, total });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Platform-level KYC review (Phase 2). Distinct from the bare
+// PATCH .../verification endpoint above, which remains as a manual
+// override an admin can still use directly; this is the real reviewed
+// path, only actionable while a submission is SUBMITTED, and is the sole
+// route that can ever call reviewKycSubmission — a business user has no
+// route that reaches it, which is what actually prevents self-approval,
+// not a check inside the service function.
+const kycListQuerySchema = z.object({ status: z.enum(KYC_STATUSES).optional() });
+
+adminRouter.get("/kyc", validate(kycListQuerySchema, "query"), async (req, res, next) => {
+  try {
+    const { status } = req.query as unknown as { status?: (typeof KYC_STATUSES)[number] };
+    res.status(200).json(await listKycSubmissions(status));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get("/kyc/:submissionId", async (req, res, next) => {
+  try {
+    res.status(200).json(await getKycSubmissionDetail(req.params.submissionId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.patch("/kyc/:submissionId/review", validate(reviewKycSchema), async (req, res, next) => {
+  try {
+    const result = await reviewKycSubmission(
+      req.params.submissionId,
+      req.user!.id,
+      req.body.decision,
+      req.body.note
+    );
+    res.status(200).json(result);
   } catch (err) {
     next(err);
   }

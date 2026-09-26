@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePlatformAdmin } from "@/components/RequirePlatformAdmin";
 import { FormAlert } from "@/components/FormAlert";
@@ -49,6 +50,9 @@ function AdminContent() {
       <p className="mt-1 text-sm text-text-secondary">
         Foundation-level operator view. Full admin operations are a later phase.
       </p>
+      <Link href="/admin/kyc" className="btn-secondary mt-4 inline-block">
+        KYC review queue
+      </Link>
 
       {error && <p className="mt-4 text-sm text-danger">{error}</p>}
       {actionError && (

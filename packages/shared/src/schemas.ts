@@ -118,3 +118,38 @@ export const reviewJoinRequestSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"]),
 });
 export type ReviewJoinRequestInput = z.infer<typeof reviewJoinRequestSchema>;
+
+/**
+ * Business profile update (Phase 2). All optional — a business can save
+ * partial progress. Empty string is treated as "clear the field" by the
+ * service layer, not rejected here, so a user can remove a value they
+ * previously entered.
+ */
+export const updateOrganizationProfileSchema = z.object({
+  contactName: z.string().max(200).optional(),
+  contactEmail: z.string().email().max(200).optional().or(z.literal("")),
+  contactPhone: z.string().max(50).optional(),
+  addressLine1: z.string().max(300).optional(),
+  city: z.string().max(120).optional(),
+  state: z.string().max(120).optional(),
+  country: z.string().max(120).optional(),
+  description: z.string().max(2000).optional(),
+  registrationNumber: z.string().max(100).optional(),
+});
+export type UpdateOrganizationProfileInput = z.infer<typeof updateOrganizationProfileSchema>;
+
+/**
+ * Platform-admin KYC review decision. `note` is required for anything other
+ * than VERIFIED — a rejection or information request with no explanation
+ * is not actionable for the business on the other end.
+ */
+export const reviewKycSchema = z
+  .object({
+    decision: z.enum(["VERIFIED", "REJECTED", "NEEDS_INFORMATION"]),
+    note: z.string().max(2000).optional(),
+  })
+  .refine((body) => body.decision === "VERIFIED" || Boolean(body.note?.trim()), {
+    message: "A note is required when rejecting or requesting more information",
+    path: ["note"],
+  });
+export type ReviewKycInput = z.infer<typeof reviewKycSchema>;

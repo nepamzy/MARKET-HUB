@@ -67,6 +67,23 @@ enum JoinRequestStatus {
   REJECTED
 }
 
+/// Workflow status for a business's KYC submission (Phase 2). Deliberately
+/// separate from Organization.verificationStatus, which stays the simple,
+/// coarse flag other code already reads (e.g. anything just checking "is
+/// this org currently trusted"). This enum carries the richer in-progress
+/// states; the two are kept in sync by the same service-layer transition
+/// code, never by a trigger — see kyc.service.ts. NOT_STARTED is
+/// deliberately not a stored value: it's simply "no KYCSubmission row
+/// exists yet" (computed in the onboarding-status endpoint), so there is
+/// never a row whose only meaning is "nothing has happened."
+enum KYCStatus {
+  DRAFT
+  SUBMITTED
+  NEEDS_INFORMATION
+  VERIFIED
+  REJECTED
+}
+
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
@@ -90,6 +107,8 @@ model User {
   createdInviteLinks   OrganizationInviteLink[]
   joinRequests         OrganizationJoinRequest[]      @relation("Requester")
   reviewedJoinRequests OrganizationJoinRequest[]      @relation("Reviewer")
+  kycSubmissionsMade   KYCSubmission[]                @relation("KYCSubmitter")
+  kycReviews           KYCSubmission[]                @relation("KYCReviewer")
 
   @@map("users")
 }
@@ -118,16 +137,56 @@ model Organization {
   businessType       BusinessType
   status             OrganizationStatus  @default(ACTIVE)
   verificationStatus VerificationStatus  @default(PENDING)
+
+  // Business profile (Phase 2). All nullable — a business exists and can
+  // operate at a basic level before completing these; onboarding-status
+  // computation (kyc.service.ts) is what turns "filled in" into a gate for
+  // KYC submission, not a NOT NULL constraint, since a partially-onboarded
+  // business is a normal state, not a data-integrity error.
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  addressLine1       String?
+  city               String?
+  state              String?
+  country            String?
+  description        String?
+  registrationNumber String?
+
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  memberships OrganizationMembership[]
-  auditLogs   AuditLog[]                @relation("OrganizationAuditLogs")
-  inviteLinks OrganizationInviteLink[]
+  memberships  OrganizationMembership[]
+  auditLogs    AuditLog[]                @relation("OrganizationAuditLogs")
+  inviteLinks  OrganizationInviteLink[]
   joinRequests OrganizationJoinRequest[]
+  kycSubmission KYCSubmission?
 
   @@index([businessType])
   @@map("organizations")
+}
+
+/// One row per organization (1:1 — see the enum doc comment above for why a
+/// single mutable row, not a history table, is the deliberate design here:
+/// AuditLog already gives a full transition history, so this table only
+/// needs to hold current state). Resubmission after REJECTED or
+/// NEEDS_INFORMATION updates this same row rather than creating a new one.
+model KYCSubmission {
+  id                String    @id @default(uuid())
+  organizationId    String    @unique
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status            KYCStatus @default(DRAFT)
+  submittedByUserId String?
+  submittedBy       User?     @relation("KYCSubmitter", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  submittedAt       DateTime?
+  reviewedByUserId  String?
+  reviewedBy        User?     @relation("KYCReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt        DateTime?
+  reviewNote        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("kyc_submissions")
 }
 
 model OrganizationMembership {

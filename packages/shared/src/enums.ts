@@ -103,3 +103,22 @@ export const PERMISSION_LEVEL_RANK: Record<PermissionLevel, number> = {
  */
 export const JOIN_REQUEST_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type JoinRequestStatus = (typeof JOIN_REQUEST_STATUSES)[number];
+
+/**
+ * KYC workflow status (Phase 2) — separate from VerificationStatus, which
+ * stays the simple flag the rest of the app reads. See schema.prisma's
+ * KYCStatus doc comment for why these aren't merged into one enum.
+ * NOT_STARTED is not a member here — it's the absence of a submission,
+ * computed by the onboarding-status endpoint, never stored.
+ */
+export const KYC_STATUSES = ["DRAFT", "SUBMITTED", "NEEDS_INFORMATION", "VERIFIED", "REJECTED"] as const;
+export type KYCStatus = (typeof KYC_STATUSES)[number];
+
+/** Fields required to be filled in before KYC can be submitted. */
+export const REQUIRED_PROFILE_FIELDS = [
+  "contactEmail",
+  "contactPhone",
+  "addressLine1",
+  "city",
+  "country",
+] as const;
