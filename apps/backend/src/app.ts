@@ -13,6 +13,7 @@ import { healthRouter } from "./modules/health/health.routes";
 import { organizationInvitationsRouter, publicInvitesRouter } from "./modules/invitations/invitations.routes";
 import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
+import { directoryRouter, organizationSupplierRouter } from "./modules/supplier/supplier.routes";
 import { usersRouter } from "./modules/users/users.routes";
 
 export function createApp(): Express {
@@ -53,6 +54,8 @@ export function createApp(): Express {
   app.use("/api/organizations", organizationsRouter);
   app.use("/api/organizations", organizationInvitationsRouter);
   app.use("/api/organizations", organizationOnboardingRouter);
+  app.use("/api/organizations", organizationSupplierRouter);
+  app.use("/api/directory", directoryRouter);
   app.use("/api/invites", publicInvitesRouter);
   app.use("/api/admin", adminRouter);
 

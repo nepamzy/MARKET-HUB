@@ -8,6 +8,7 @@ import { requireAuth, requirePlatformRole } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { ORGANIZATION_SELECT } from "../organizations/organizations.service";
 import { getKycSubmissionDetail, listKycSubmissions, reviewKycSubmission } from "../kyc/kyc.service";
+import { adminListDirectory, adminSetDirectoryVisibility } from "../supplier/supplier.service";
 
 export const adminRouter = Router();
 
@@ -137,6 +138,33 @@ adminRouter.patch("/kyc/:submissionId/review", validate(reviewKycSchema), async 
       req.user!.id,
       req.body.decision,
       req.body.note
+    );
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Directory/supplier oversight (Phase 3). Deliberately minimal — full
+// admin operations (bulk actions, richer filtering) belong to the future
+// Master Admin Control Center, not this phase.
+adminRouter.get("/directory", validate(paginationSchema, "query"), async (req, res, next) => {
+  try {
+    const { page, pageSize } = req.query as unknown as { page: number; pageSize: number };
+    res.status(200).json(await adminListDirectory(page, pageSize));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const setVisibilitySchema = z.object({ isDiscoverable: z.boolean() });
+
+adminRouter.patch("/directory/:organizationId/visibility", validate(setVisibilitySchema), async (req, res, next) => {
+  try {
+    const result = await adminSetDirectoryVisibility(
+      req.params.organizationId,
+      req.user!.id,
+      req.body.isDiscoverable
     );
     res.status(200).json(result);
   } catch (err) {

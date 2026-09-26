@@ -122,3 +122,17 @@ export const REQUIRED_PROFILE_FIELDS = [
   "city",
   "country",
 ] as const;
+
+/**
+ * Supplier capability (Phase 3) — separate from BusinessType, see
+ * schema.prisma's SupplierCapability doc comment for why.
+ */
+export const SUPPLIER_CAPABILITIES = [
+  "MANUFACTURER",
+  "DISTRIBUTOR",
+  "WHOLESALER",
+  "RETAILER",
+  "SERVICE_PROVIDER",
+  "OTHER",
+] as const;
+export type SupplierCapability = (typeof SUPPLIER_CAPABILITIES)[number];

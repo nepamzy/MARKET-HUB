@@ -84,6 +84,25 @@ enum KYCStatus {
   REJECTED
 }
 
+/// Supplier capability (Phase 3). Deliberately a SEPARATE enum from
+/// BusinessType, not an extension of it — per the Phase 3 spec's explicit
+/// instruction not to silently change BusinessType's existing meaning.
+/// The two answer different questions: BusinessType is the org's single
+/// registered category (chosen once at creation, drives KYC/profile
+/// requirements); SupplierCapability is zero-or-more roles a business
+/// says it can fulfill in the marketplace (a WHOLESALER org can also
+/// declare DISTRIBUTOR capability for certain product lines, for example).
+/// DISTRIBUTOR and SERVICE_PROVIDER exist here specifically because
+/// BusinessType has no equivalent values and the spec asks for them.
+enum SupplierCapability {
+  MANUFACTURER
+  DISTRIBUTOR
+  WHOLESALER
+  RETAILER
+  SERVICE_PROVIDER
+  OTHER
+}
+
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
@@ -161,9 +180,46 @@ model Organization {
   inviteLinks  OrganizationInviteLink[]
   joinRequests OrganizationJoinRequest[]
   kycSubmission KYCSubmission?
+  supplierProfile SupplierProfile?
 
   @@index([businessType])
   @@map("organizations")
+}
+
+/// One row per organization (1:1 — see the enum doc comment above for why a
+/// single mutable row, not a history table, is the deliberate design here:
+/// AuditLog already gives a full transition history, so this table only
+/// needs to hold current state). Resubmission after REJECTED or
+/// NEEDS_INFORMATION updates this same row rather than creating a new one.
+/// One row per organization (1:1, same rationale as KYCSubmission — this
+/// holds current state, AuditLog holds history). Location/coverage fields
+/// are free-text arrays, not enums or foreign keys into a country/region
+/// table — deliberately country-neutral (Phase 3 spec §11): no assumption
+/// of Nigerian states, CAC-style registration, or any single country's
+/// address structure. A future dedicated country/region reference table
+/// can be layered on top later without a breaking change here, since
+/// these remain plain strings either way.
+model SupplierProfile {
+  id               String               @id @default(uuid())
+  organizationId   String               @unique
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  capabilities     SupplierCapability[]
+  categories       String[]
+  countriesServed  String[]
+  regionsServed    String[]
+  citiesServed     String[]
+  minimumOrderInfo String?
+  // Two independently meaningful flags, not one: isActive is the business's
+  // own "we are currently operating" signal; isDiscoverable is the
+  // visibility toggle (business- or admin-controlled) for whether the
+  // profile appears in directory search at all. A profile can be active
+  // but deliberately hidden (isDiscoverable=false) while still editable.
+  isActive         Boolean              @default(true)
+  isDiscoverable   Boolean              @default(false)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@map("supplier_profiles")
 }
 
 /// One row per organization (1:1 — see the enum doc comment above for why a

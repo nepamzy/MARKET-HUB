@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { BUSINESS_TYPES, MEMBERSHIP_ROLES, PERMISSION_RESOURCES } from "./enums";
+import {
+  BUSINESS_TYPES,
+  MEMBERSHIP_ROLES,
+  PERMISSION_RESOURCES,
+  SUPPLIER_CAPABILITIES,
+  VERIFICATION_STATUSES,
+} from "./enums";
 
 /**
  * Request contracts shared between the API and the frontend forms that
@@ -153,3 +159,39 @@ export const reviewKycSchema = z
     path: ["note"],
   });
 export type ReviewKycInput = z.infer<typeof reviewKycSchema>;
+
+/**
+ * Supplier profile update (Phase 3). Arrays are capped to keep the payload
+ * and the eventual directory-index size bounded without needing a real
+ * taxonomy table yet — "clean database-backed filtered search," per the
+ * spec, not a search engine. Free-text country/region/city strings
+ * (validated only for length, never against a fixed country list) keep
+ * this Africa-wide-ready rather than Nigeria-only.
+ */
+const boundedStringArray = (maxItems: number, maxLength: number) =>
+  z.array(z.string().min(1).max(maxLength)).max(maxItems);
+
+export const updateSupplierProfileSchema = z.object({
+  capabilities: z.array(z.enum(SUPPLIER_CAPABILITIES)).max(10).optional(),
+  categories: boundedStringArray(30, 80).optional(),
+  countriesServed: boundedStringArray(60, 80).optional(),
+  regionsServed: boundedStringArray(60, 80).optional(),
+  citiesServed: boundedStringArray(100, 80).optional(),
+  minimumOrderInfo: z.string().max(500).optional().or(z.literal("")),
+  isActive: z.boolean().optional(),
+  isDiscoverable: z.boolean().optional(),
+});
+export type UpdateSupplierProfileInput = z.infer<typeof updateSupplierProfileSchema>;
+
+export const directorySearchQuerySchema = z.object({
+  businessType: z.enum(BUSINESS_TYPES).optional(),
+  capability: z.enum(SUPPLIER_CAPABILITIES).optional(),
+  country: z.string().max(80).optional(),
+  state: z.string().max(80).optional(),
+  city: z.string().max(80).optional(),
+  category: z.string().max(80).optional(),
+  verificationStatus: z.enum(VERIFICATION_STATUSES).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type DirectorySearchQuery = z.infer<typeof directorySearchQuerySchema>;

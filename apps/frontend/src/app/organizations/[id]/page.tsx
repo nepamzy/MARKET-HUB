@@ -89,6 +89,9 @@ function OrganizationDetailContent() {
                 <Link href={`/organizations/${organization.id}/onboarding`} className="btn-secondary w-full">
                   Business profile &amp; verification
                 </Link>
+                <Link href={`/organizations/${organization.id}/supplier-profile`} className="btn-secondary w-full">
+                  Supplier profile
+                </Link>
                 <Link href={`/organizations/${organization.id}/invites`} className="btn-secondary w-full">
                   Invites &amp; join requests
                 </Link>

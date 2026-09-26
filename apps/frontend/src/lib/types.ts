@@ -109,3 +109,55 @@ export interface KycSubmissionDetail extends KycSubmissionSummary {
   reviewedBy: { id: string; name: string } | null;
   organization: OrganizationProfile;
 }
+
+export type SupplierCapabilityValue = "MANUFACTURER" | "DISTRIBUTOR" | "WHOLESALER" | "RETAILER" | "SERVICE_PROVIDER" | "OTHER";
+
+export interface SupplierProfile {
+  capabilities: SupplierCapabilityValue[];
+  categories: string[];
+  countriesServed: string[];
+  regionsServed: string[];
+  citiesServed: string[];
+  minimumOrderInfo: string | null;
+  isActive: boolean;
+  isDiscoverable: boolean;
+  updatedAt: string;
+}
+
+export interface DirectoryListing {
+  id: string;
+  legalName: string;
+  businessType: BusinessType;
+  verificationStatus: VerificationStatus;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  description: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  supplierProfile: {
+    capabilities: SupplierCapabilityValue[];
+    categories: string[];
+    countriesServed: string[];
+    regionsServed: string[];
+    citiesServed: string[];
+    minimumOrderInfo: string | null;
+  };
+}
+
+export interface AdminDirectoryEntry {
+  id: string;
+  legalName: string;
+  businessType: BusinessType;
+  status: OrganizationStatus;
+  verificationStatus: VerificationStatus;
+  country: string | null;
+  city: string | null;
+  supplierProfile: {
+    capabilities: SupplierCapabilityValue[];
+    categories: string[];
+    isActive: boolean;
+    isDiscoverable: boolean;
+    updatedAt: string;
+  } | null;
+}

@@ -53,6 +53,9 @@ function AdminContent() {
       <Link href="/admin/kyc" className="btn-secondary mt-4 inline-block">
         KYC review queue
       </Link>
+      <Link href="/admin/directory" className="btn-secondary ml-3 mt-4 inline-block">
+        Directory oversight
+      </Link>
 
       {error && <p className="mt-4 text-sm text-danger">{error}</p>}
       {actionError && (
