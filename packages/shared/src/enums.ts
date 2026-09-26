@@ -93,3 +93,13 @@ export const PERMISSION_LEVEL_RANK: Record<PermissionLevel, number> = {
   VIEW: 1,
   EDIT: 2,
 };
+
+/**
+ * Business join-request status (Phase 0.2 — see
+ * docs/handoff/PHASE_0_MASTER_BLUEPRINT.md §6.2/§10). A request is a
+ * separate object from the invite link itself: possessing a link never
+ * grants access — it only lets someone start a request, which still
+ * requires explicit OWNER/MANAGER approval before a membership is created.
+ */
+export const JOIN_REQUEST_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+export type JoinRequestStatus = (typeof JOIN_REQUEST_STATUSES)[number];

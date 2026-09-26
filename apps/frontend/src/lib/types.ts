@@ -44,3 +44,22 @@ export interface MemberPermissions {
   role: MembershipRole;
   permissions: Record<PermissionResource, PermissionLevel>;
 }
+
+export interface InviteLink {
+  id: string;
+  inviteeEmail: string | null;
+  role: MembershipRole;
+  expiresAt: string;
+  maxUses: number | null;
+  useCount: number;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface JoinRequest {
+  id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  createdAt: string;
+  reviewedAt: string | null;
+  user: { id: string; name: string; email: string };
+}

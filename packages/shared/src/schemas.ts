@@ -99,3 +99,22 @@ export const updateMemberPermissionsSchema = z
     message: "At least one permission must be provided",
   });
 export type UpdateMemberPermissionsInput = z.infer<typeof updateMemberPermissionsSchema>;
+
+/**
+ * Invite-link creation (Phase 0.2). Both bounds are optional but at least
+ * one of expiresInDays/maxUses should normally be set by the frontend
+ * default — the schema itself doesn't force that, since an OWNER may
+ * deliberately want an unbounded internal link. maxUses, if given, must be
+ * a positive integer; expiresInDays is capped at a generous but finite
+ * window to avoid an effectively-permanent forgotten link.
+ */
+export const createInviteLinkSchema = z.object({
+  expiresInDays: z.number().int().min(1).max(90).optional().default(7),
+  maxUses: z.number().int().min(1).max(10_000).optional(),
+});
+export type CreateInviteLinkInput = z.infer<typeof createInviteLinkSchema>;
+
+export const reviewJoinRequestSchema = z.object({
+  status: z.enum(["APPROVED", "REJECTED"]),
+});
+export type ReviewJoinRequestInput = z.infer<typeof reviewJoinRequestSchema>;

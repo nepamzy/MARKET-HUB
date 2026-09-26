@@ -61,6 +61,12 @@ enum PermissionLevel {
   EDIT
 }
 
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
@@ -77,10 +83,13 @@ model User {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  memberships        OrganizationMembership[]
-  refreshTokens      RefreshToken[]
-  auditLogs          AuditLog[]               @relation("ActorAuditLogs")
-  grantedPermissions MembershipPermission[]
+  memberships          OrganizationMembership[]
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]                    @relation("ActorAuditLogs")
+  grantedPermissions   MembershipPermission[]
+  createdInviteLinks   OrganizationInviteLink[]
+  joinRequests         OrganizationJoinRequest[]      @relation("Requester")
+  reviewedJoinRequests OrganizationJoinRequest[]      @relation("Reviewer")
 
   @@map("users")
 }
@@ -114,6 +123,8 @@ model Organization {
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]                @relation("OrganizationAuditLogs")
+  inviteLinks OrganizationInviteLink[]
+  joinRequests OrganizationJoinRequest[]
 
   @@index([businessType])
   @@map("organizations")
@@ -157,6 +168,70 @@ model MembershipPermission {
   @@unique([membershipId, resource])
   @@index([membershipId])
   @@map("membership_permissions")
+}
+
+/// Business join / invitation (Phase 1 — see
+/// docs/handoff/PHASE_0_MASTER_BLUEPRINT.md §6.2 and the Phase 1
+/// continuation prompt). One model covers both required mechanisms:
+///   - Generic shareable link: inviteeEmail is null. Anyone who resolves
+///     the token and is authenticated may submit an OrganizationJoinRequest,
+///     which still requires explicit OWNER/MANAGER approval before any
+///     membership is created — possessing the link alone never grants access.
+///   - Direct invitation to a person: inviteeEmail is set at creation by an
+///     OWNER/MANAGER, who also chooses `role` up front. Only an authenticated
+///     user whose account email matches inviteeEmail may accept it
+///     (server-side check, never client-supplied). Acceptance creates the
+///     membership immediately with the pre-chosen role, because the
+///     approval already happened when the admin targeted that specific
+///     person and role — a second review step would be redundant, not
+///     safer. An OrganizationJoinRequest row is still created and marked
+///     APPROVED in the same transaction, so both paths share one audit
+///     trail and one "how did this member get here" query.
+model OrganizationInviteLink {
+  id              String    @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tokenHash       String    @unique
+  inviteeEmail    String?
+  role            MembershipRole @default(STAFF)
+  createdByUserId String
+  createdBy       User      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  expiresAt       DateTime
+  maxUses         Int?
+  useCount        Int       @default(0)
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  joinRequests    OrganizationJoinRequest[]
+
+  @@index([organizationId])
+  @@map("organization_invite_links")
+}
+
+/// A request to join a business — created either by a user submitting a
+/// request against a generic link (status starts PENDING, needs review) or
+/// automatically on acceptance of a direct invitation (status starts
+/// APPROVED, since the admin already decided when they created it). Never
+/// grants access by itself — membership creation is the explicit side
+/// effect of the APPROVED transition, performed server-side in the same
+/// transaction, never inferred from this row's status by any other code path.
+model OrganizationJoinRequest {
+  id               String            @id @default(uuid())
+  organizationId   String
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User              @relation("Requester", fields: [userId], references: [id], onDelete: Cascade)
+  inviteLinkId     String?
+  inviteLink       OrganizationInviteLink? @relation(fields: [inviteLinkId], references: [id], onDelete: SetNull)
+  status           JoinRequestStatus @default(PENDING)
+  reviewedByUserId String?
+  reviewedBy       User?             @relation("Reviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  createdAt        DateTime          @default(now())
+
+  @@index([organizationId, status])
+  @@index([userId])
+  @@map("organization_join_requests")
 }
 
 /// Audit trail for security-relevant and administrative actions
