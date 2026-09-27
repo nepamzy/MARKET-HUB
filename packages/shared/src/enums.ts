@@ -136,3 +136,24 @@ export const SUPPLIER_CAPABILITIES = [
   "OTHER",
 ] as const;
 export type SupplierCapability = (typeof SUPPLIER_CAPABILITIES)[number];
+
+export const PRODUCT_STATUSES = ["DRAFT", "ACTIVE", "INACTIVE", "ARCHIVED"] as const;
+export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+
+export const PRODUCT_UNITS = [
+  "PIECE",
+  "PACK",
+  "CARTON",
+  "BOX",
+  "KILOGRAM",
+  "GRAM",
+  "LITRE",
+  "MILLILITRE",
+  "METRE",
+  "CASE",
+  "OTHER",
+] as const;
+export type ProductUnit = (typeof PRODUCT_UNITS)[number];
+
+export const PRICE_TIERS = ["RETAIL", "WHOLESALE", "BUSINESS"] as const;
+export type PriceTier = (typeof PRICE_TIERS)[number];

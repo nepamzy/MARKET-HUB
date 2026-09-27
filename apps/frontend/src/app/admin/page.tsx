@@ -56,6 +56,9 @@ function AdminContent() {
       <Link href="/admin/directory" className="btn-secondary ml-3 mt-4 inline-block">
         Directory oversight
       </Link>
+      <Link href="/admin/products" className="btn-secondary ml-3 mt-4 inline-block">
+        Product catalogue
+      </Link>
 
       {error && <p className="mt-4 text-sm text-danger">{error}</p>}
       {actionError && (

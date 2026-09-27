@@ -9,6 +9,7 @@ import { validate } from "../../middleware/validate";
 import { ORGANIZATION_SELECT } from "../organizations/organizations.service";
 import { getKycSubmissionDetail, listKycSubmissions, reviewKycSubmission } from "../kyc/kyc.service";
 import { adminListDirectory, adminSetDirectoryVisibility } from "../supplier/supplier.service";
+import { adminListProducts } from "../products/products.service";
 
 export const adminRouter = Router();
 
@@ -167,6 +168,18 @@ adminRouter.patch("/directory/:organizationId/visibility", validate(setVisibilit
       req.body.isDiscoverable
     );
     res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Product catalogue oversight (Phase 4) — read-only, per the spec's
+// explicit caution against giving admins arbitrary business-level editing
+// powers without a clearly justified operational requirement.
+adminRouter.get("/products", validate(paginationSchema, "query"), async (req, res, next) => {
+  try {
+    const { page, pageSize } = req.query as unknown as { page: number; pageSize: number };
+    res.status(200).json(await adminListProducts(page, pageSize));
   } catch (err) {
     next(err);
   }

@@ -14,6 +14,8 @@ function useNavItems(): NavItem[] {
   const items: NavItem[] = [
     { href: "/dashboard", label: "Overview" },
     { href: "/organizations", label: "Organizations" },
+    { href: "/marketplace", label: "Marketplace" },
+    { href: "/directory", label: "Directory" },
     { href: "/account", label: "Account" },
   ];
   if (user?.platformRole === "PLATFORM_ADMIN") {

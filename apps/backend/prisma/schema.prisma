@@ -108,6 +108,42 @@ enum OrganizationStatus {
   SUSPENDED
 }
 
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// Deliberately a small, closed enum rather than a free-text field or a
+/// full unit-conversion system (Phase 4 spec §13: "do not create a massive
+/// unit-conversion engine"). Covers count-based, weight-based, and
+/// volume/length-based units common across multiple sectors (food,
+/// agriculture, industrial, retail) without assuming any one of them.
+enum ProductUnit {
+  PIECE
+  PACK
+  CARTON
+  BOX
+  KILOGRAM
+  GRAM
+  LITRE
+  MILLILITRE
+  METRE
+  CASE
+  OTHER
+}
+
+/// Pricing tier (Phase 4 §12) — a foundation for future wholesale/business/
+/// retail pricing and quantity breaks, deliberately NOT an RFQ/negotiation
+/// system. Multiple ProductPrice rows per tier (different minQuantity)
+/// support quantity-based pricing without a transaction engine.
+enum PriceTier {
+  RETAIL
+  WHOLESALE
+  BUSINESS
+}
+
 model User {
   id            String        @id @default(uuid())
   name          String
@@ -181,6 +217,7 @@ model Organization {
   joinRequests OrganizationJoinRequest[]
   kycSubmission KYCSubmission?
   supplierProfile SupplierProfile?
+  products      Product[]
 
   @@index([businessType])
   @@map("organizations")
@@ -220,6 +257,90 @@ model SupplierProfile {
   updatedAt        DateTime             @updatedAt
 
   @@map("supplier_profiles")
+}
+
+/// Simple two-level hierarchy (top category -> optional subcategory via
+/// parentId), database-backed rather than a hardcoded enum, per the
+/// multi-sector requirement (Phase 4 §9) — the platform must not assume
+/// any single industry's taxonomy. Deliberately not a deep/generic
+/// tree-of-arbitrary-depth taxonomy engine: "do not create an
+/// unnecessarily complex taxonomy system in this phase."
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  parentId  String?
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryHierarchy")
+  createdAt DateTime   @default(now())
+
+  products  Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+/// A product always belongs to exactly one organization (Phase 4 §6 —
+/// ownership is never ambiguous or shared). status and isDiscoverable are
+/// deliberately separate fields (Phase 4 §8, mirroring SupplierProfile's
+/// isActive/isDiscoverable split): a DRAFT product is never discoverable
+/// regardless of the flag, but an ACTIVE product can still be intentionally
+/// hidden. sku is unique per organization, not globally — two different
+/// businesses may legitimately use the same internal SKU scheme.
+/// Deliberately no hard delete anywhere in this module (§7: "should not
+/// simply disappear from historical references later") — ARCHIVED is the
+/// terminal state a product moves to instead, so future Order/RFQ line
+/// items (Phase 5+) can still reference a real row.
+model Product {
+  id                  String        @id @default(uuid())
+  organizationId      String
+  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                String
+  description         String?
+  sku                 String?
+  categoryId          String?
+  category            Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brand               String?
+  unit                ProductUnit   @default(PIECE)
+  status              ProductStatus @default(DRAFT)
+  isDiscoverable      Boolean       @default(false)
+  minimumOrderQuantity Int?
+  primaryImageUrl     String?
+  additionalImageUrls String[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  prices              ProductPrice[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([categoryId])
+  @@index([status, isDiscoverable])
+  @@map("products")
+}
+
+/// Quantity-tiered pricing foundation (Phase 4 §12) — NOT an RFQ/quotation
+/// engine. Several rows per (product, tier) at different minQuantity
+/// breakpoints represent simple quantity-based pricing (e.g. WHOLESALE at
+/// qty>=10 vs qty>=100) without any negotiation workflow. currency is a
+/// plain validated string (ISO 4217 code, checked in the Zod schema), with
+/// no default value baked into the schema — defaulting silently to any one
+/// currency would bake in a Nigeria-only assumption the Phase 3 directory
+/// work deliberately avoided.
+model ProductPrice {
+  id          String    @id @default(uuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tier        PriceTier
+  minQuantity Int       @default(1)
+  unitPrice   Decimal   @db.Decimal(12, 2)
+  currency    String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, tier, minQuantity])
+  @@index([productId])
+  @@map("product_prices")
 }
 
 /// One row per organization (1:1 — see the enum doc comment above for why a

@@ -3,6 +3,9 @@ import {
   BUSINESS_TYPES,
   MEMBERSHIP_ROLES,
   PERMISSION_RESOURCES,
+  PRICE_TIERS,
+  PRODUCT_STATUSES,
+  PRODUCT_UNITS,
   SUPPLIER_CAPABILITIES,
   VERIFICATION_STATUSES,
 } from "./enums";
@@ -195,3 +198,61 @@ export const directorySearchQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type DirectorySearchQuery = z.infer<typeof directorySearchQuerySchema>;
+
+/**
+ * Product create/update (Phase 4). A single schema for both — create
+ * requires `name`; update makes everything optional via .partial() at the
+ * route layer's call site is avoided in favor of two explicit schemas so
+ * required-on-create fields stay genuinely required.
+ */
+const productPriceInputSchema = z.object({
+  tier: z.enum(PRICE_TIERS),
+  minQuantity: z.number().int().min(1).default(1),
+  unitPrice: z.number().positive(),
+  // ISO 4217, e.g. "NGN", "KES", "GHS", "USD" -- validated for shape only,
+  // never defaulted, so no currency is silently assumed for any market.
+  currency: z
+    .string()
+    .length(3)
+    .regex(/^[A-Z]{3}$/, "currency must be a 3-letter ISO 4217 code"),
+});
+
+export const createProductSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(3000).optional(),
+  sku: z.string().max(100).optional(),
+  categoryId: z.string().uuid().optional(),
+  brand: z.string().max(120).optional(),
+  unit: z.enum(PRODUCT_UNITS).optional(),
+  minimumOrderQuantity: z.number().int().min(1).optional(),
+  primaryImageUrl: z.string().url().max(2000).optional(),
+  additionalImageUrls: z.array(z.string().url().max(2000)).max(10).optional(),
+  prices: z.array(productPriceInputSchema).max(20).optional(),
+});
+export type CreateProductInput = z.infer<typeof createProductSchema>;
+
+export const updateProductSchema = createProductSchema.partial().extend({
+  status: z.enum(PRODUCT_STATUSES).optional(),
+  isDiscoverable: z.boolean().optional(),
+});
+export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+
+export const productSearchQuerySchema = z.object({
+  search: z.string().max(200).optional(),
+  categoryId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
+  brand: z.string().max(120).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type ProductSearchQuery = z.infer<typeof productSearchQuerySchema>;
+
+// For an organization's own catalogue view -- unlike public discovery,
+// includes filtering by status since owners manage drafts/archives too.
+export const organizationProductQuerySchema = z.object({
+  status: z.enum(PRODUCT_STATUSES).optional(),
+  search: z.string().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type OrganizationProductQuery = z.infer<typeof organizationProductQuerySchema>;

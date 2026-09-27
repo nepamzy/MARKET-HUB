@@ -161,3 +161,74 @@ export interface AdminDirectoryEntry {
     updatedAt: string;
   } | null;
 }
+
+export type ProductStatusValue = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
+export type ProductUnitValue =
+  | "PIECE"
+  | "PACK"
+  | "CARTON"
+  | "BOX"
+  | "KILOGRAM"
+  | "GRAM"
+  | "LITRE"
+  | "MILLILITRE"
+  | "METRE"
+  | "CASE"
+  | "OTHER";
+export type PriceTierValue = "RETAIL" | "WHOLESALE" | "BUSINESS";
+
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+}
+
+export interface ProductPriceEntry {
+  id?: string;
+  tier: PriceTierValue;
+  minQuantity: number;
+  unitPrice: number;
+  currency: string;
+}
+
+export interface OrganizationProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  sku: string | null;
+  categoryId: string | null;
+  category: { id: string; name: string; slug: string } | null;
+  brand: string | null;
+  unit: ProductUnitValue;
+  status: ProductStatusValue;
+  isDiscoverable: boolean;
+  minimumOrderQuantity: number | null;
+  primaryImageUrl: string | null;
+  additionalImageUrls: string[];
+  createdAt: string;
+  updatedAt: string;
+  prices: ProductPriceEntry[];
+}
+
+export interface PublicProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  categoryId: string | null;
+  category: { id: string; name: string; slug: string } | null;
+  brand: string | null;
+  unit: ProductUnitValue;
+  minimumOrderQuantity: number | null;
+  primaryImageUrl: string | null;
+  additionalImageUrls: string[];
+  prices: ProductPriceEntry[];
+  organization: {
+    id: string;
+    legalName: string;
+    businessType: BusinessType;
+    verificationStatus: VerificationStatus;
+    country: string | null;
+    city: string | null;
+  };
+}
