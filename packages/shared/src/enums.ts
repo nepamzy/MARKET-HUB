@@ -157,3 +157,7 @@ export type ProductUnit = (typeof PRODUCT_UNITS)[number];
 
 export const PRICE_TIERS = ["RETAIL", "WHOLESALE", "BUSINESS"] as const;
 export type PriceTier = (typeof PRICE_TIERS)[number];
+
+/** Commercial availability — separate axis from ProductStatus, see schema.prisma. */
+export const OFFER_AVAILABILITIES = ["AVAILABLE", "OUT_OF_STOCK", "TEMPORARILY_UNAVAILABLE", "DISCONTINUED"] as const;
+export type OfferAvailability = (typeof OFFER_AVAILABILITIES)[number];

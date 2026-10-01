@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   BUSINESS_TYPES,
   MEMBERSHIP_ROLES,
+  OFFER_AVAILABILITIES,
   PERMISSION_RESOURCES,
   PRICE_TIERS,
   PRODUCT_STATUSES,
@@ -217,6 +218,78 @@ const productPriceInputSchema = z.object({
     .regex(/^[A-Z]{3}$/, "currency must be a 3-letter ISO 4217 code"),
 });
 
+/**
+ * Deterministic pricing rules (Phase 5 §7F), enforced server-side on the
+ * whole `prices` array at once — none of these can be checked on a single
+ * price row in isolation:
+ *  1. No duplicate (tier, minQuantity) breakpoint. Phase 4's DB unique
+ *     constraint already forbids it, but only as a raw constraint
+ *     violation; catching it here returns a clean 400 instead.
+ *  2. One currency per product. A product priced RETAIL in NGN and
+ *     WHOLESALE in KES has no comparable tiers and is almost certainly a
+ *     data-entry mistake.
+ *  3. Within a tier, unit price must not INCREASE as the quantity
+ *     breakpoint rises. Because this model stores breakpoints (qty >= N
+ *     -> price P) rather than explicit [min,max] ranges, ranges can never
+ *     structurally overlap — what CAN go wrong is a "volume discount"
+ *     that costs more per unit at higher volume, which is contradictory.
+ *     Deliberately strict; relax explicitly if a real surcharge use case
+ *     ever appears rather than silently permitting it now.
+ */
+const productPricesSchema = z
+  .array(productPriceInputSchema)
+  .max(20)
+  .superRefine((prices, ctx) => {
+    const seen = new Set<string>();
+    for (const [i, p] of prices.entries()) {
+      const key = `${p.tier}:${p.minQuantity}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i],
+          message: `Duplicate price breakpoint for ${p.tier} at quantity ${p.minQuantity}`,
+        });
+      }
+      seen.add(key);
+    }
+
+    const currencies = new Set(prices.map((p) => p.currency));
+    if (currencies.size > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "All prices for one product must use the same currency",
+      });
+    }
+
+    for (const tier of PRICE_TIERS) {
+      const tierPrices = prices.filter((p) => p.tier === tier).sort((a, b) => a.minQuantity - b.minQuantity);
+      for (let i = 1; i < tierPrices.length; i++) {
+        if (tierPrices[i]!.unitPrice > tierPrices[i - 1]!.unitPrice) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `${tier} unit price must not increase as quantity increases`,
+          });
+          break;
+        }
+      }
+    }
+  });
+
+/**
+ * Commercial offer fields (Phase 5). Only what Product doesn't already
+ * carry (unit and minimumOrderQuantity stay on Product). The cross-field
+ * rule maxQuantity >= Product.minimumOrderQuantity can't be expressed here
+ * since minimumOrderQuantity may already be stored from an earlier request
+ * — it's checked in products.service.ts against the effective merged value.
+ */
+const commercialOfferInputSchema = z.object({
+  availability: z.enum(OFFER_AVAILABILITIES).optional(),
+  maxQuantity: z.number().int().positive().optional(),
+  orderIncrement: z.number().int().positive().optional(),
+  leadTimeDays: z.number().int().min(0).max(3650).optional(),
+  leadTimeNote: z.string().max(300).optional(),
+});
+
 export const createProductSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(3000).optional(),
@@ -227,7 +300,8 @@ export const createProductSchema = z.object({
   minimumOrderQuantity: z.number().int().min(1).optional(),
   primaryImageUrl: z.string().url().max(2000).optional(),
   additionalImageUrls: z.array(z.string().url().max(2000)).max(10).optional(),
-  prices: z.array(productPriceInputSchema).max(20).optional(),
+  prices: productPricesSchema.optional(),
+  commercialOffer: commercialOfferInputSchema.optional(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 

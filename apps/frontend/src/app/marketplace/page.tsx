@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
+import { StatusBadge } from "@/components/StatusBadge";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
 import type { PublicProduct } from "@/lib/types";
 
@@ -49,7 +50,10 @@ function MarketplaceContent() {
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {results.map((p) => (
             <Link key={p.id} href={`/marketplace/${p.id}`} className="card block transition hover:border-navy/30">
-              <h2 className="font-semibold text-text-primary">{p.name}</h2>
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="font-semibold text-text-primary">{p.name}</h2>
+                <StatusBadge status={p.commercialOffer?.availability ?? "AVAILABLE"} />
+              </div>
               <p className="mt-1 text-xs text-text-secondary">{p.organization.legalName}</p>
               {p.prices[0] && (
                 <p className="mt-2 text-sm font-medium text-navy">

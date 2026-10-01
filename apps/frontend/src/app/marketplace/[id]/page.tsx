@@ -40,9 +40,19 @@ function ProductDetailContent() {
         ← Back to marketplace
       </Link>
 
-      <h1 className="mt-3 text-2xl font-semibold text-navy">{product.name}</h1>
+      <div className="mt-3 flex items-center gap-3">
+        <h1 className="text-2xl font-semibold text-navy">{product.name}</h1>
+        <StatusBadge status={product.commercialOffer?.availability ?? "AVAILABLE"} />
+      </div>
       {product.brand && <p className="mt-1 text-sm text-text-secondary">{product.brand}</p>}
       {product.description && <p className="card mt-6 text-sm text-text-primary">{product.description}</p>}
+
+      {product.commercialOffer && (product.commercialOffer.leadTimeDays || product.commercialOffer.leadTimeNote) && (
+        <p className="mt-4 text-sm text-text-secondary">
+          {product.commercialOffer.leadTimeNote ??
+            `Lead time: ${product.commercialOffer.leadTimeDays} day${product.commercialOffer.leadTimeDays === 1 ? "" : "s"}`}
+        </p>
+      )}
 
       {product.prices.length > 0 && (
         <section className="card mt-6">
@@ -70,9 +80,12 @@ function ProductDetailContent() {
               ))}
             </tbody>
           </table>
-          {product.minimumOrderQuantity && (
+          {(product.minimumOrderQuantity || product.commercialOffer?.maxQuantity || product.commercialOffer?.orderIncrement) && (
             <p className="mt-3 text-xs text-text-secondary">
-              Minimum order: {product.minimumOrderQuantity} {product.unit.toLowerCase()}
+              {product.minimumOrderQuantity && `Minimum order: ${product.minimumOrderQuantity} ${product.unit.toLowerCase()}. `}
+              {product.commercialOffer?.maxQuantity && `Maximum order: ${product.commercialOffer.maxQuantity} ${product.unit.toLowerCase()}. `}
+              {product.commercialOffer?.orderIncrement &&
+                `Order in multiples of ${product.commercialOffer.orderIncrement} ${product.unit.toLowerCase()}.`}
             </p>
           )}
         </section>

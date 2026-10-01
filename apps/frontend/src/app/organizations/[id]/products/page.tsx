@@ -7,12 +7,13 @@ import { FormAlert } from "@/components/FormAlert";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
-import type { Category, OrganizationProduct, PriceTierValue, ProductUnitValue } from "@/lib/types";
+import type { Category, OfferAvailabilityValue, OrganizationProduct, PriceTierValue, ProductUnitValue } from "@/lib/types";
 
 const UNITS: ProductUnitValue[] = [
   "PIECE", "PACK", "CARTON", "BOX", "KILOGRAM", "GRAM", "LITRE", "MILLILITRE", "METRE", "CASE", "OTHER",
 ];
 const TIERS: PriceTierValue[] = ["RETAIL", "WHOLESALE", "BUSINESS"];
+const AVAILABILITIES: OfferAvailabilityValue[] = ["AVAILABLE", "OUT_OF_STOCK", "TEMPORARILY_UNAVAILABLE", "DISCONTINUED"];
 
 interface FormState {
   name: string;
@@ -25,6 +26,11 @@ interface FormState {
   priceTier: PriceTierValue;
   priceAmount: string;
   priceCurrency: string;
+  availability: OfferAvailabilityValue;
+  maxQuantity: string;
+  orderIncrement: string;
+  leadTimeDays: string;
+  leadTimeNote: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -38,6 +44,11 @@ const EMPTY_FORM: FormState = {
   priceTier: "RETAIL",
   priceAmount: "",
   priceCurrency: "NGN",
+  availability: "AVAILABLE",
+  maxQuantity: "",
+  orderIncrement: "",
+  leadTimeDays: "",
+  leadTimeNote: "",
 };
 
 function ProductsContent() {
@@ -93,6 +104,11 @@ function ProductsContent() {
       priceTier: p.prices[0]?.tier ?? "RETAIL",
       priceAmount: p.prices[0]?.unitPrice?.toString() ?? "",
       priceCurrency: p.prices[0]?.currency ?? "NGN",
+      availability: p.commercialOffer?.availability ?? "AVAILABLE",
+      maxQuantity: p.commercialOffer?.maxQuantity?.toString() ?? "",
+      orderIncrement: p.commercialOffer?.orderIncrement?.toString() ?? "",
+      leadTimeDays: p.commercialOffer?.leadTimeDays?.toString() ?? "",
+      leadTimeNote: p.commercialOffer?.leadTimeNote ?? "",
     });
     setEditingId(p.id);
     setActionError(null);
@@ -114,6 +130,13 @@ function ProductsContent() {
         prices: form.priceAmount
           ? [{ tier: form.priceTier, unitPrice: Number(form.priceAmount), currency: form.priceCurrency, minQuantity: 1 }]
           : undefined,
+        commercialOffer: {
+          availability: form.availability,
+          maxQuantity: form.maxQuantity ? Number(form.maxQuantity) : undefined,
+          orderIncrement: form.orderIncrement ? Number(form.orderIncrement) : undefined,
+          leadTimeDays: form.leadTimeDays ? Number(form.leadTimeDays) : undefined,
+          leadTimeNote: form.leadTimeNote || undefined,
+        },
       };
       if (editingId === "new") {
         await authedFetch(`/organizations/${organizationId}/products`, { method: "POST", body: JSON.stringify(payload) });
@@ -279,6 +302,67 @@ function ProductsContent() {
               </div>
             </div>
           </div>
+
+          <fieldset className="mt-6 border-t border-border pt-4">
+            <legend className="text-xs uppercase tracking-wide text-text-secondary">Commercial offer</legend>
+            <div className="mt-2 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-xs uppercase tracking-wide text-text-secondary">Availability</label>
+                <select
+                  className="field-input mt-1"
+                  value={form.availability}
+                  onChange={(e) => setForm((f) => ({ ...f, availability: e.target.value as OfferAvailabilityValue }))}
+                >
+                  {AVAILABILITIES.map((a) => (
+                    <option key={a} value={a}>
+                      {a.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-wide text-text-secondary">Maximum quantity</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="field-input mt-1"
+                  value={form.maxQuantity}
+                  onChange={(e) => setForm((f) => ({ ...f, maxQuantity: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-wide text-text-secondary">Order increment</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="field-input mt-1"
+                  value={form.orderIncrement}
+                  onChange={(e) => setForm((f) => ({ ...f, orderIncrement: e.target.value }))}
+                  placeholder="e.g. must order in multiples of 5"
+                />
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-wide text-text-secondary">Lead time (days)</label>
+                <input
+                  type="number"
+                  min={0}
+                  className="field-input mt-1"
+                  value={form.leadTimeDays}
+                  onChange={(e) => setForm((f) => ({ ...f, leadTimeDays: e.target.value }))}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs uppercase tracking-wide text-text-secondary">Lead time note</label>
+                <input
+                  className="field-input mt-1"
+                  value={form.leadTimeNote}
+                  onChange={(e) => setForm((f) => ({ ...f, leadTimeNote: e.target.value }))}
+                  placeholder="e.g. Ships within 3–5 business days"
+                />
+              </div>
+            </div>
+          </fieldset>
+
           <div className="mt-4 flex gap-3">
             <button type="submit" disabled={saving} className="btn-primary">
               {saving ? "Saving…" : "Save"}
@@ -300,6 +384,7 @@ function ProductsContent() {
                 <th className="px-4 py-3 font-medium">Product</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Visibility</th>
+                <th className="px-4 py-3 font-medium">Availability</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -312,6 +397,9 @@ function ProductsContent() {
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={p.isDiscoverable ? "ACTIVE" : "SUSPENDED"} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={p.commercialOffer?.availability ?? "AVAILABLE"} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-3">

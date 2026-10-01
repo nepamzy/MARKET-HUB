@@ -176,6 +176,15 @@ export type ProductUnitValue =
   | "CASE"
   | "OTHER";
 export type PriceTierValue = "RETAIL" | "WHOLESALE" | "BUSINESS";
+export type OfferAvailabilityValue = "AVAILABLE" | "OUT_OF_STOCK" | "TEMPORARILY_UNAVAILABLE" | "DISCONTINUED";
+
+export interface CommercialOffer {
+  availability: OfferAvailabilityValue;
+  maxQuantity: number | null;
+  orderIncrement: number | null;
+  leadTimeDays: number | null;
+  leadTimeNote: string | null;
+}
 
 export interface Category {
   id: string;
@@ -209,6 +218,7 @@ export interface OrganizationProduct {
   createdAt: string;
   updatedAt: string;
   prices: ProductPriceEntry[];
+  commercialOffer: CommercialOffer | null;
 }
 
 export interface PublicProduct {
@@ -223,6 +233,7 @@ export interface PublicProduct {
   primaryImageUrl: string | null;
   additionalImageUrls: string[];
   prices: ProductPriceEntry[];
+  commercialOffer: CommercialOffer | null;
   organization: {
     id: string;
     legalName: string;

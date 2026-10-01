@@ -16,6 +16,20 @@ const PRICE_SELECT = {
   currency: true,
 } as const;
 
+// Nothing in CommercialOffer is sensitive (availability, quantity bounds,
+// lead time are all information a buyer legitimately needs), so the same
+// select serves both the owner view and the public view. If a future
+// internal-only field is added to the model (e.g. cost basis), it must NOT
+// be added here — split into owner/public selects at that point, as done
+// for Product itself.
+const OFFER_SELECT = {
+  availability: true,
+  maxQuantity: true,
+  orderIncrement: true,
+  leadTimeDays: true,
+  leadTimeNote: true,
+} as const;
+
 // Full view for the owning organization — every field, every status.
 const OWNER_PRODUCT_SELECT = {
   id: true,
@@ -34,6 +48,7 @@ const OWNER_PRODUCT_SELECT = {
   createdAt: true,
   updatedAt: true,
   prices: { select: PRICE_SELECT },
+  commercialOffer: { select: OFFER_SELECT },
 } as const;
 
 // What appears in public discovery — same privacy discipline as Phase 3's
@@ -52,10 +67,40 @@ const PUBLIC_PRODUCT_SELECT = {
   primaryImageUrl: true,
   additionalImageUrls: true,
   prices: { select: PRICE_SELECT },
+  commercialOffer: { select: OFFER_SELECT },
   organization: {
     select: { id: true, legalName: true, businessType: true, verificationStatus: true, country: true, city: true },
   },
 } as const;
+
+/**
+ * Cross-field quantity rules that can't live in Zod (the inputs may span
+ * a stored value and a newly-submitted one) or in a DB CHECK (they span
+ * two tables). Always called with the EFFECTIVE merged values — i.e. new
+ * input falling back to whatever is already stored — so an update that
+ * only touches maxQuantity is still validated against the stored MOQ.
+ */
+function assertQuantityConsistency(values: {
+  minimumOrderQuantity?: number | null;
+  maxQuantity?: number | null;
+  orderIncrement?: number | null;
+}) {
+  const { minimumOrderQuantity: moq, maxQuantity: max, orderIncrement: step } = values;
+
+  if (moq != null && max != null && max < moq) {
+    throw AppError.badRequest("Maximum quantity cannot be less than the minimum order quantity");
+  }
+  // A MOQ that isn't a multiple of the order increment is unsatisfiable as
+  // stated (e.g. MOQ 7 with increment 5: 7 is below the first valid
+  // quantity above it, 10) — reject rather than store a contradiction that
+  // a future cart/order phase would have to guess how to interpret.
+  if (moq != null && step != null && moq % step !== 0) {
+    throw AppError.badRequest("Minimum order quantity must be a multiple of the order increment");
+  }
+  if (max != null && step != null && step > max) {
+    throw AppError.badRequest("Order increment cannot exceed the maximum quantity");
+  }
+}
 
 async function assertProductBelongsToOrg(organizationId: string, productId: string) {
   const product = await prisma.product.findFirst({ where: { id: productId, organizationId }, select: { id: true } });
@@ -65,13 +110,20 @@ async function assertProductBelongsToOrg(organizationId: string, productId: stri
 }
 
 export async function createProduct(organizationId: string, actorUserId: string, input: CreateProductInput) {
-  const { prices, ...fields } = input;
+  const { prices, commercialOffer, ...fields } = input;
+
+  assertQuantityConsistency({
+    minimumOrderQuantity: fields.minimumOrderQuantity,
+    maxQuantity: commercialOffer?.maxQuantity,
+    orderIncrement: commercialOffer?.orderIncrement,
+  });
 
   const product = await prisma.product.create({
     data: {
       organizationId,
       ...fields,
       ...(prices ? { prices: { create: prices } } : {}),
+      ...(commercialOffer ? { commercialOffer: { create: commercialOffer } } : {}),
     },
     select: OWNER_PRODUCT_SELECT,
   });
@@ -83,6 +135,17 @@ export async function createProduct(organizationId: string, actorUserId: string,
     targetType: "Product",
     targetId: product.id,
   });
+
+  if (commercialOffer) {
+    await recordAudit({
+      actorUserId,
+      organizationId,
+      action: "COMMERCIAL_OFFER_CREATED",
+      targetType: "Product",
+      targetId: product.id,
+      metadata: { availability: commercialOffer.availability ?? "AVAILABLE" },
+    });
+  }
 
   return product;
 }
@@ -136,12 +199,34 @@ export async function updateProduct(
 
   const existing = await prisma.product.findUniqueOrThrow({
     where: { id: productId },
-    select: { status: true, isDiscoverable: true },
+    select: {
+      status: true,
+      isDiscoverable: true,
+      minimumOrderQuantity: true,
+      commercialOffer: { select: OFFER_SELECT },
+    },
   });
 
-  const { prices, ...fields } = input;
+  const { prices, commercialOffer: offerInput, ...fields } = input;
+
+  // Validate against the EFFECTIVE merged values: an update that only sets
+  // maxQuantity must still be checked against the MOQ already stored, and
+  // vice versa. `undefined` means "not part of this request" (fall back to
+  // stored); an explicit value replaces it.
+  assertQuantityConsistency({
+    minimumOrderQuantity: fields.minimumOrderQuantity ?? existing.minimumOrderQuantity,
+    maxQuantity: offerInput?.maxQuantity ?? existing.commercialOffer?.maxQuantity,
+    orderIncrement: offerInput?.orderIncrement ?? existing.commercialOffer?.orderIncrement,
+  });
+
+  const offerData = offerInput
+    ? { ...offerInput, leadTimeNote: offerInput.leadTimeNote === "" ? null : offerInput.leadTimeNote }
+    : undefined;
 
   const product = await prisma.$transaction(async (tx) => {
+    // `prices`, when supplied, is the COMPLETE new price list (replace, not
+    // merge) — which is why the whole-array validation in the Zod schema is
+    // sufficient to guarantee the final stored state is consistent.
     if (prices) {
       await tx.productPrice.deleteMany({ where: { productId } });
     }
@@ -150,6 +235,9 @@ export async function updateProduct(
       data: {
         ...fields,
         ...(prices ? { prices: { create: prices } } : {}),
+        ...(offerData
+          ? { commercialOffer: { upsert: { create: offerData, update: offerData } } }
+          : {}),
       },
       select: OWNER_PRODUCT_SELECT,
     });
@@ -182,6 +270,40 @@ export async function updateProduct(
       targetType: "Product",
       targetId: productId,
       metadata: { isDiscoverable: input.isDiscoverable },
+    });
+  }
+
+  if (offerInput) {
+    await recordAudit({
+      actorUserId,
+      organizationId,
+      action: existing.commercialOffer ? "COMMERCIAL_OFFER_UPDATED" : "COMMERCIAL_OFFER_CREATED",
+      targetType: "Product",
+      targetId: productId,
+      metadata: { fields: Object.keys(offerInput) },
+    });
+
+    const previousAvailability = existing.commercialOffer?.availability ?? "AVAILABLE";
+    if (offerInput.availability !== undefined && offerInput.availability !== previousAvailability) {
+      await recordAudit({
+        actorUserId,
+        organizationId,
+        action: "COMMERCIAL_OFFER_AVAILABILITY_CHANGED",
+        targetType: "Product",
+        targetId: productId,
+        metadata: { from: previousAvailability, to: offerInput.availability },
+      });
+    }
+  }
+
+  if (prices) {
+    await recordAudit({
+      actorUserId,
+      organizationId,
+      action: "COMMERCIAL_OFFER_PRICING_CHANGED",
+      targetType: "Product",
+      targetId: productId,
+      metadata: { tierCount: prices.length },
     });
   }
 

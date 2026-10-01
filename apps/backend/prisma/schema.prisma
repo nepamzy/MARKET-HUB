@@ -144,6 +144,19 @@ enum PriceTier {
   BUSINESS
 }
 
+/// Commercial availability (Phase 5) — deliberately NOT the same axis as
+/// Product.status (catalogue lifecycle) or Product.isDiscoverable
+/// (catalogue visibility). A product can be ACTIVE and isDiscoverable=true
+/// (visible, browsable) while its offer is OUT_OF_STOCK (buyer sees it,
+/// sees it's unavailable, and can watch for restock) — collapsing these
+/// into one status would make that ordinary, common state unrepresentable.
+enum OfferAvailability {
+  AVAILABLE
+  OUT_OF_STOCK
+  TEMPORARILY_UNAVAILABLE
+  DISCONTINUED
+}
+
 model User {
   id            String        @id @default(uuid())
   name          String
@@ -311,6 +324,7 @@ model Product {
   updatedAt           DateTime      @updatedAt
 
   prices              ProductPrice[]
+  commercialOffer     CommercialOffer?
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -341,6 +355,37 @@ model ProductPrice {
   @@unique([productId, tier, minQuantity])
   @@index([productId])
   @@map("product_prices")
+}
+
+/// Commercial offer (Phase 5) — HOW an organization sells a Product,
+/// layered alongside it rather than merged into it (Phase 5 spec §5:
+/// "preserve the distinction... do not unnecessarily collapse"). 1:1,
+/// optional — a Product can exist in DRAFT with no offer configured yet,
+/// same pattern as SupplierProfile/KYCSubmission being optional companions
+/// to Organization. Deliberately does NOT repeat sellingUnit or
+/// minimumOrderQuantity, which already live on Product (Phase 4) — adding
+/// them here would be exactly the duplication §5 warns against. Pricing
+/// itself stays on the existing ProductPrice breakpoint model; this table
+/// only adds what Phase 4 didn't already cover: availability, an upper
+/// bound and ordering increment on top of Product.minimumOrderQuantity,
+/// and descriptive lead time.
+model CommercialOffer {
+  id             String            @id @default(uuid())
+  productId      String            @unique
+  product        Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  availability   OfferAvailability @default(AVAILABLE)
+  // Cross-checked against Product.minimumOrderQuantity in the service
+  // layer (maxQuantity must be >= minimumOrderQuantity when both are set)
+  // -- not enforceable as a DB constraint since the two fields live on
+  // different tables.
+  maxQuantity    Int?
+  orderIncrement Int?
+  leadTimeDays   Int?
+  leadTimeNote   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("commercial_offers")
 }
 
 /// One row per organization (1:1 — see the enum doc comment above for why a
