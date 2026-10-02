@@ -116,32 +116,43 @@ organizationInvitationsRouter.patch(
  * POST requires authentication but does NOT require organization
  * membership, since the whole point is the caller isn't a member yet.
  */
-export const publicInvitesRouter = Router();
+/**
+ * A factory, not a module-level singleton — see the identical note on
+ * `createAuthRouter` in auth.routes.ts. The same rate-limiter-pooling bug
+ * applies here: a singleton would share one in-memory counter across every
+ * `createApp()` call for the process lifetime, which silently pools
+ * request counts across unrelated test files in one Vitest run.
+ */
+export function createPublicInvitesRouter(): Router {
+  const publicInvitesRouter = Router();
 
-// Same rate-limiting discipline as auth.routes.ts's authLimiter — accepting
-// an invite is, like login/register, an unauthenticated-adjacent action
-// worth guarding against brute-forcing token guesses (tokens are
-// high-entropy, so this is defense in depth, not the primary protection).
-const acceptInviteLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: { code: "TOO_MANY_REQUESTS", message: "Too many attempts, try again later" } },
-});
+  // Same rate-limiting discipline as auth.routes.ts's authLimiter — accepting
+  // an invite is, like login/register, an unauthenticated-adjacent action
+  // worth guarding against brute-forcing token guesses (tokens are
+  // high-entropy, so this is defense in depth, not the primary protection).
+  const acceptInviteLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: { code: "TOO_MANY_REQUESTS", message: "Too many attempts, try again later" } },
+  });
 
-publicInvitesRouter.get("/:token", async (req, res, next) => {
-  try {
-    res.status(200).json(await resolveInviteToken(req.params.token));
-  } catch (err) {
-    next(err);
-  }
-});
+  publicInvitesRouter.get("/:token", async (req, res, next) => {
+    try {
+      res.status(200).json(await resolveInviteToken(req.params.token));
+    } catch (err) {
+      next(err);
+    }
+  });
 
-publicInvitesRouter.post("/:token/accept", acceptInviteLimiter, requireAuth, async (req, res, next) => {
-  try {
-    res.status(200).json(await acceptOrRequestInvite(req.params.token, req.user!.id));
-  } catch (err) {
-    next(err);
-  }
-});
+  publicInvitesRouter.post("/:token/accept", acceptInviteLimiter, requireAuth, async (req, res, next) => {
+    try {
+      res.status(200).json(await acceptOrRequestInvite(req.params.token, req.user!.id));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return publicInvitesRouter;
+}

@@ -8,9 +8,9 @@ import { logger } from "./lib/logger";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { requestId } from "./middleware/requestId";
 import { adminRouter } from "./modules/admin/admin.routes";
-import { authRouter } from "./modules/auth/auth.routes";
+import { createAuthRouter } from "./modules/auth/auth.routes";
 import { healthRouter } from "./modules/health/health.routes";
-import { organizationInvitationsRouter, publicInvitesRouter } from "./modules/invitations/invitations.routes";
+import { createPublicInvitesRouter, organizationInvitationsRouter } from "./modules/invitations/invitations.routes";
 import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
 import { categoriesRouter, organizationProductsRouter, publicProductsRouter } from "./modules/products/products.routes";
@@ -50,7 +50,7 @@ export function createApp(): Express {
   app.use(cookieParser());
 
   app.use("/api/health", healthRouter);
-  app.use("/api/auth", authRouter);
+  app.use("/api/auth", createAuthRouter());
   app.use("/api/users", usersRouter);
   app.use("/api/organizations", organizationsRouter);
   app.use("/api/organizations", organizationInvitationsRouter);
@@ -60,7 +60,7 @@ export function createApp(): Express {
   app.use("/api/directory", directoryRouter);
   app.use("/api/products", publicProductsRouter);
   app.use("/api/categories", categoriesRouter);
-  app.use("/api/invites", publicInvitesRouter);
+  app.use("/api/invites", createPublicInvitesRouter());
   app.use("/api/admin", adminRouter);
 
   app.use(notFoundHandler);

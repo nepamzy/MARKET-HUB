@@ -105,7 +105,7 @@ describe("Generic shareable invite links", () => {
     const members = await request(app)
       .get(`/api/organizations/${organizationId}/members`)
       .set("Authorization", `Bearer ${owner.accessToken}`);
-    expect(members.body).toHaveLength(1); // only the owner
+    expect(members.body.members).toHaveLength(1); // only the owner
   });
 
   it("creates a PENDING join request (not an immediate membership) when an authenticated user accepts a generic link", async () => {
@@ -128,7 +128,7 @@ describe("Generic shareable invite links", () => {
     const members = await request(app)
       .get(`/api/organizations/${organizationId}/members`)
       .set("Authorization", `Bearer ${owner.accessToken}`);
-    expect(members.body).toHaveLength(1); // requester is NOT a member yet
+    expect(members.body.members).toHaveLength(1); // requester is NOT a member yet
   });
 
   it("full approval flow: owner sees the pending request, approves it, membership + default STAFF permissions apply", async () => {
@@ -159,8 +159,8 @@ describe("Generic shareable invite links", () => {
     const members = await request(app)
       .get(`/api/organizations/${organizationId}/members`)
       .set("Authorization", `Bearer ${owner.accessToken}`);
-    expect(members.body).toHaveLength(2);
-    const newMember = members.body.find((m: { user: { id: string } }) => m.user.id === requester.userId);
+    expect(members.body.members).toHaveLength(2);
+    const newMember = members.body.members.find((m: { user: { id: string } }) => m.user.id === requester.userId);
     expect(newMember.role).toBe("STAFF");
 
     // Approving twice must fail — a request is not repeatedly actionable
@@ -197,7 +197,7 @@ describe("Generic shareable invite links", () => {
     const members = await request(app)
       .get(`/api/organizations/${organizationId}/members`)
       .set("Authorization", `Bearer ${owner.accessToken}`);
-    expect(members.body).toHaveLength(1);
+    expect(members.body.members).toHaveLength(1);
   });
 
   it("blocks a STAFF member from approving join requests (MANAGER+ only)", async () => {
@@ -258,7 +258,7 @@ describe("Direct invitations (targeted to a specific email + role)", () => {
     const members = await request(app)
       .get(`/api/organizations/${organizationId}/members`)
       .set("Authorization", `Bearer ${owner.accessToken}`);
-    const newMember = members.body.find((m: { user: { id: string } }) => m.user.id === invitee.userId);
+    const newMember = members.body.members.find((m: { user: { id: string } }) => m.user.id === invitee.userId);
     expect(newMember.role).toBe("MANAGER");
   });
 
