@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatMinorUnits } from "@/lib/money";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
 import type { PublicProduct } from "@/lib/types";
 
@@ -57,7 +58,7 @@ function MarketplaceContent() {
               <p className="mt-1 text-xs text-text-secondary">{p.organization.legalName}</p>
               {p.prices[0] && (
                 <p className="mt-2 text-sm font-medium text-navy">
-                  {p.prices[0].currency} {p.prices[0].unitPrice.toLocaleString()} / {p.unit.toLowerCase()}
+                  {formatMinorUnits(p.prices[0].unitPriceMinor, p.prices[0].currency)} / {p.unit.toLowerCase()}
                 </p>
               )}
             </Link>

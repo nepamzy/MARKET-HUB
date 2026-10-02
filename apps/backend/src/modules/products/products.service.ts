@@ -12,7 +12,7 @@ const PRICE_SELECT = {
   id: true,
   tier: true,
   minQuantity: true,
-  unitPrice: true,
+  unitPriceMinor: true,
   currency: true,
 } as const;
 

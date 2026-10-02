@@ -6,6 +6,7 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { FormAlert } from "@/components/FormAlert";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
+import { toMinorUnits } from "@/lib/money";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
 import type { Category, OfferAvailabilityValue, OrganizationProduct, PriceTierValue, ProductUnitValue } from "@/lib/types";
 
@@ -102,7 +103,7 @@ function ProductsContent() {
       unit: p.unit,
       minimumOrderQuantity: p.minimumOrderQuantity?.toString() ?? "",
       priceTier: p.prices[0]?.tier ?? "RETAIL",
-      priceAmount: p.prices[0]?.unitPrice?.toString() ?? "",
+      priceAmount: p.prices[0] ? (p.prices[0].unitPriceMinor / 100).toString() : "",
       priceCurrency: p.prices[0]?.currency ?? "NGN",
       availability: p.commercialOffer?.availability ?? "AVAILABLE",
       maxQuantity: p.commercialOffer?.maxQuantity?.toString() ?? "",
@@ -128,7 +129,14 @@ function ProductsContent() {
         unit: form.unit,
         minimumOrderQuantity: form.minimumOrderQuantity ? Number(form.minimumOrderQuantity) : undefined,
         prices: form.priceAmount
-          ? [{ tier: form.priceTier, unitPrice: Number(form.priceAmount), currency: form.priceCurrency, minQuantity: 1 }]
+          ? [
+              {
+                tier: form.priceTier,
+                unitPriceMinor: toMinorUnits(Number(form.priceAmount)),
+                currency: form.priceCurrency,
+                minQuantity: 1,
+              },
+            ]
           : undefined,
         commercialOffer: {
           availability: form.availability,

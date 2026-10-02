@@ -177,6 +177,8 @@ model User {
   reviewedJoinRequests OrganizationJoinRequest[]      @relation("Reviewer")
   kycSubmissionsMade   KYCSubmission[]                @relation("KYCSubmitter")
   kycReviews           KYCSubmission[]                @relation("KYCReviewer")
+  carts                Cart[]
+  ordersAsBuyer        Order[]
 
   @@map("users")
 }
@@ -231,6 +233,7 @@ model Organization {
   kycSubmission KYCSubmission?
   supplierProfile SupplierProfile?
   products      Product[]
+  ordersAsSeller Order[]
 
   @@index([businessType])
   @@map("organizations")
@@ -325,6 +328,8 @@ model Product {
 
   prices              ProductPrice[]
   commercialOffer     CommercialOffer?
+  cartItems           CartItem[]
+  orderItems          OrderItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -341,16 +346,30 @@ model Product {
 /// no default value baked into the schema — defaulting silently to any one
 /// currency would bake in a Nigeria-only assumption the Phase 3 directory
 /// work deliberately avoided.
+///
+/// unitPriceMinor (Phase 6 money-representation correction): originally
+/// `Decimal(12,2)`. Phase 6 needed an authoritative, server-computed order
+/// total with zero floating-point/rounding ambiguity feeding a future
+/// payment integration — exactly what docs/ARCHITECTURE.md's "integer minor
+/// units, never floating point, for monetary accounting" rule exists for.
+/// Decimal(12,2) wasn't unsafe, but it was a second, inconsistent money
+/// representation alongside that rule, and propagating it into Order would
+/// have made two competing conventions permanent. Migrated in
+/// 20261003090000_money_minor_units (data preserved: existing values * 100,
+/// rounded — safe pre-launch, no real transactions exist yet). Assumes
+/// 2-decimal-place currencies (NGN, KES, GHS, USD — everything in scope for
+/// the Nigeria-first roadmap); a zero-decimal currency (e.g. JPY) is out of
+/// scope and not handled by this column.
 model ProductPrice {
-  id          String    @id @default(uuid())
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  tier        PriceTier
-  minQuantity Int       @default(1)
-  unitPrice   Decimal   @db.Decimal(12, 2)
-  currency    String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tier           PriceTier
+  minQuantity    Int       @default(1)
+  unitPriceMinor Int
+  currency       String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([productId, tier, minQuantity])
   @@index([productId])
@@ -535,4 +554,154 @@ model AuditLog {
   @@index([organizationId])
   @@index([action])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------
+// Phase 6 — Cart, Checkout & Order Foundation
+// ---------------------------------------------------------------------
+
+/// Explicit, centrally-validated order lifecycle (Phase 6 §11) — never a
+/// free-text status a client can set directly. Deliberately has no PAID or
+/// AWAITING_PAYMENT state: this phase creates no payment integration and
+/// must never imply one exists (Phase 6 §9/§27). Deliberately has no
+/// DELIVERED/SHIPPED state either — those require fulfillment
+/// infrastructure this phase does not build. Transitions are centralized
+/// in orders.service.ts's ORDER_STATUS_TRANSITIONS map, not scattered
+/// across route handlers.
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+/// A buyer's shopping cart (Phase 6). Owned by a User, not an Organization:
+/// B2C marketplace buyers have no organization of their own in this
+/// project's model — only businesses do (see CLAUDE.md's fixed boundary
+/// "business identity belongs to Organization.businessType", which has no
+/// analogue for an individual customer). This mirrors the project's
+/// existing B2C information architecture (docs/handoff/INFORMATION_
+/// ARCHITECTURE.md: "Customer: Home, Discover, Orders, Cart, Account" —
+/// Cart belongs to the Customer, not a business entity).
+///
+/// A cart may legitimately hold items from multiple seller organizations
+/// (Phase 6 §14) — checkout decomposes it into one independent Order per
+/// seller, which is the project's existing approved decision ("multi-seller
+/// checkout = independent seller orders", docs/handoff/DECISION_REGISTER.md)
+/// applied here rather than invented fresh. Cart itself therefore carries
+/// no single sellerOrganizationId.
+///
+/// checkedOutAt is both a state marker AND the idempotency mechanism for
+/// checkout (Phase 6 §18): checkout atomically claims a cart by flipping
+/// this from null exactly once (same conditional-UPDATE pattern already
+/// used for refresh-token rotation in lib/refreshTokens.ts) — a second,
+/// concurrent checkout request for the same cart loses the claim and fails
+/// cleanly instead of creating a duplicate set of orders. A checked-out
+/// cart is never reused; the next add-to-cart creates a fresh one. This is
+/// deliberately not a full client-supplied-idempotency-key system — see
+/// cart.service.ts for the documented limitation.
+model Cart {
+  id           String     @id @default(uuid())
+  buyerUserId  String
+  buyerUser    User       @relation(fields: [buyerUserId], references: [id], onDelete: Cascade)
+  checkedOutAt DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  items CartItem[]
+
+  @@index([buyerUserId])
+  @@map("carts")
+}
+
+/// Always resolves RETAIL-tier pricing (Phase 6 keeps the marketplace cart
+/// a B2C surface, consistent with how `searchProducts`/the public
+/// marketplace already works — WHOLESALE/BUSINESS tier purchasing is a B2B
+/// procurement concern explicitly out of scope for this phase, Phase 6 §5).
+/// No price is stored here — quantity is the only buyer input; unit price
+/// is always re-resolved server-side from current ProductPrice rows,
+/// both for display and, authoritatively, at checkout (Phase 6 §8: "Do
+/// not allow the client to submit an arbitrary total").
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+/// One Order per seller organization per checkout (Phase 6 §14/§15) — the
+/// "independent seller orders" decision. subtotalMinor and totalMinor are
+/// equal in this phase: no fees, delivery charges, tax, or commission exist
+/// yet (Phase 6 §15 explicitly forbids inventing them), so both fields are
+/// stored for forward compatibility with the payment/fulfillment phases
+/// that will need to add charges without changing this shape, not because
+/// they currently differ. cancelledAt/cancelReason cover the Phase 6 §12
+/// cancellation foundation; WHO cancelled it is recorded via AuditLog
+/// (ORDER_CANCELLED), not a redundant relation here.
+model Order {
+  id                   String       @id @default(uuid())
+  buyerUserId          String
+  buyerUser            User         @relation(fields: [buyerUserId], references: [id], onDelete: Restrict)
+  sellerOrganizationId String
+  sellerOrganization   Organization @relation(fields: [sellerOrganizationId], references: [id], onDelete: Restrict)
+  status               OrderStatus  @default(PENDING)
+  currency             String
+  subtotalMinor        Int
+  totalMinor           Int
+  totalQuantity        Int
+  cancelledAt          DateTime?
+  cancelReason         String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  items OrderItem[]
+
+  @@index([buyerUserId])
+  @@index([sellerOrganizationId])
+  @@index([status])
+  @@map("orders")
+}
+
+/// Immutable purchase snapshot (Phase 6 §10) — the entire point of this
+/// table is that it must NOT change when the seller later edits the
+/// product. productId stays a real foreign key (safe because Phase 4 never
+/// hard-deletes products — "ARCHIVED is the terminal state... so future
+/// Order line items can still reference a real row", see Product's doc
+/// comment) but every field a buyer actually needs to see their order
+/// history is duplicated here as a plain value, never read through that
+/// relation. productPriceId is deliberately a loose, unenforced reference
+/// (no FK) — the same polymorphic-reference pattern AuditLog already uses
+/// for targetType/targetId — because Phase 4's price-update flow deletes
+/// and recreates ALL of a product's ProductPrice rows on every edit
+/// (products.service.ts: "prices, when supplied, is the COMPLETE new price
+/// list"); a real FK with onDelete:Restrict here would make it impossible
+/// for a seller to ever update prices again once a single order existed.
+model OrderItem {
+  id                     String      @id @default(uuid())
+  orderId                String
+  order                  Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId              String
+  product                Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productPriceId         String?
+  productName            String
+  sellerOrganizationName String
+  unit                   ProductUnit
+  tier                   PriceTier
+  quantity               Int
+  unitPriceMinor         Int
+  currency               String
+  lineTotalMinor         Int
+  createdAt              DateTime    @default(now())
+
+  @@index([orderId])
+  @@map("order_items")
 }

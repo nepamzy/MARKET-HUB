@@ -17,6 +17,10 @@ const STYLES: Record<string, string> = {
   OWNER: "bg-navy/10 text-navy",
   MANAGER: "bg-info/10 text-info",
   STAFF: "bg-muted/20 text-text-secondary",
+  CONFIRMED: "bg-info/10 text-info",
+  PROCESSING: "bg-info/10 text-info",
+  COMPLETED: "bg-success/10 text-success",
+  CANCELLED: "bg-danger/10 text-danger",
 };
 
 /**

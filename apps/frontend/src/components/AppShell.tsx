@@ -7,16 +7,23 @@ import { useAuth } from "@/lib/auth-context";
 interface NavItem {
   href: string;
   label: string;
+  // Mobile's bottom bar has room for ~5 legible items before labels start
+  // overlapping (a real, screenshot-caught problem, not a hypothetical) —
+  // so it shows a curated subset rather than everything the desktop
+  // sidebar can afford to list in full.
+  mobile?: boolean;
 }
 
 function useNavItems(): NavItem[] {
   const { user } = useAuth();
   const items: NavItem[] = [
-    { href: "/dashboard", label: "Overview" },
+    { href: "/dashboard", label: "Overview", mobile: true },
+    { href: "/marketplace", label: "Marketplace", mobile: true },
+    { href: "/cart", label: "Cart", mobile: true },
+    { href: "/orders", label: "Orders", mobile: true },
     { href: "/organizations", label: "Organizations" },
-    { href: "/marketplace", label: "Marketplace" },
     { href: "/directory", label: "Directory" },
-    { href: "/account", label: "Account" },
+    { href: "/account", label: "Account", mobile: true },
   ];
   if (user?.platformRole === "PLATFORM_ADMIN") {
     items.push({ href: "/admin", label: "Admin" });
@@ -29,6 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const navItems = useNavItems();
+  const mobileNavItems = navItems.filter((item) => item.mobile);
 
   async function handleLogout() {
     await logout();
@@ -84,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="fixed inset-x-0 bottom-0 z-10 flex border-t border-border bg-surface lg:hidden"
         aria-label="Primary"
       >
-        {navItems.map((item) => {
+        {mobileNavItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link

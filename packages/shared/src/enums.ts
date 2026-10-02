@@ -161,3 +161,12 @@ export type PriceTier = (typeof PRICE_TIERS)[number];
 /** Commercial availability — separate axis from ProductStatus, see schema.prisma. */
 export const OFFER_AVAILABILITIES = ["AVAILABLE", "OUT_OF_STOCK", "TEMPORARILY_UNAVAILABLE", "DISCONTINUED"] as const;
 export type OfferAvailability = (typeof OFFER_AVAILABILITIES)[number];
+
+/**
+ * Order lifecycle (Phase 6) — see schema.prisma's OrderStatus doc comment
+ * for why there is no PAID/AWAITING_PAYMENT or DELIVERED/SHIPPED state yet.
+ * Valid transitions are centralized in orders.service.ts, not here — this
+ * is just the closed set of values, never a free-text status.
+ */
+export const ORDER_STATUSES = ["PENDING", "CONFIRMED", "PROCESSING", "COMPLETED", "CANCELLED"] as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[number];

@@ -197,7 +197,7 @@ export interface ProductPriceEntry {
   id?: string;
   tier: PriceTierValue;
   minQuantity: number;
-  unitPrice: number;
+  unitPriceMinor: number;
   currency: string;
 }
 
@@ -242,4 +242,62 @@ export interface PublicProduct {
     country: string | null;
     city: string | null;
   };
+}
+
+// --- Phase 6: Cart, Checkout & Order foundation -------------------------
+
+export interface CartItemView {
+  id: string;
+  productId: string;
+  quantity: number;
+  valid: boolean;
+  invalidReason?: string;
+  productName?: string;
+  unit?: ProductUnitValue;
+  sellerOrganizationId?: string;
+  sellerOrganizationName?: string;
+  unitPriceMinor?: number;
+  currency?: string;
+  lineTotalMinor?: number;
+}
+
+export interface CartView {
+  cartId: string;
+  items: CartItemView[];
+  subtotalByCurrency: Record<string, number>;
+  totalQuantity: number;
+}
+
+export type OrderStatusValue = "PENDING" | "CONFIRMED" | "PROCESSING" | "COMPLETED" | "CANCELLED";
+
+export interface OrderItemView {
+  id: string;
+  productId: string;
+  productName: string;
+  sellerOrganizationName: string;
+  unit: ProductUnitValue;
+  tier: PriceTierValue;
+  quantity: number;
+  unitPriceMinor: number;
+  currency: string;
+  lineTotalMinor: number;
+}
+
+export interface OrderView {
+  id: string;
+  buyerUserId: string;
+  sellerOrganizationId: string;
+  sellerOrganization: { id: string; legalName: string };
+  status: OrderStatusValue;
+  currency: string;
+  subtotalMinor: number;
+  totalMinor: number;
+  totalQuantity: number;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: OrderItemView[];
+  viewerRole?: "buyer" | "seller";
+  viewerSellerRole?: MembershipRole | null;
 }

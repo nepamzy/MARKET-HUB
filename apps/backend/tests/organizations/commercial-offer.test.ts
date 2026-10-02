@@ -31,9 +31,9 @@ describe("Pricing validation (§7F, §15 PRICING)", () => {
 
     const res = await createProduct(app, organizationId, owner.accessToken, {
       prices: [
-        { tier: "WHOLESALE", minQuantity: 1, unitPrice: 100, currency: "NGN" },
-        { tier: "WHOLESALE", minQuantity: 10, unitPrice: 90, currency: "NGN" },
-        { tier: "WHOLESALE", minQuantity: 50, unitPrice: 80, currency: "NGN" },
+        { tier: "WHOLESALE", minQuantity: 1, unitPriceMinor: 100, currency: "NGN" },
+        { tier: "WHOLESALE", minQuantity: 10, unitPriceMinor: 90, currency: "NGN" },
+        { tier: "WHOLESALE", minQuantity: 50, unitPriceMinor: 80, currency: "NGN" },
       ],
     });
 
@@ -48,8 +48,8 @@ describe("Pricing validation (§7F, §15 PRICING)", () => {
 
     const res = await createProduct(app, organizationId, owner.accessToken, {
       prices: [
-        { tier: "WHOLESALE", minQuantity: 10, unitPrice: 100, currency: "NGN" },
-        { tier: "WHOLESALE", minQuantity: 10, unitPrice: 90, currency: "NGN" },
+        { tier: "WHOLESALE", minQuantity: 10, unitPriceMinor: 100, currency: "NGN" },
+        { tier: "WHOLESALE", minQuantity: 10, unitPriceMinor: 90, currency: "NGN" },
       ],
     });
     expect(res.status).toBe(400);
@@ -62,8 +62,8 @@ describe("Pricing validation (§7F, §15 PRICING)", () => {
 
     const res = await createProduct(app, organizationId, owner.accessToken, {
       prices: [
-        { tier: "WHOLESALE", minQuantity: 1, unitPrice: 100, currency: "NGN" },
-        { tier: "RETAIL", minQuantity: 1, unitPrice: 5, currency: "KES" },
+        { tier: "WHOLESALE", minQuantity: 1, unitPriceMinor: 100, currency: "NGN" },
+        { tier: "RETAIL", minQuantity: 1, unitPriceMinor: 5, currency: "KES" },
       ],
     });
     expect(res.status).toBe(400);
@@ -76,8 +76,8 @@ describe("Pricing validation (§7F, §15 PRICING)", () => {
 
     const res = await createProduct(app, organizationId, owner.accessToken, {
       prices: [
-        { tier: "WHOLESALE", minQuantity: 1, unitPrice: 80, currency: "NGN" },
-        { tier: "WHOLESALE", minQuantity: 10, unitPrice: 100, currency: "NGN" }, // higher qty, higher price
+        { tier: "WHOLESALE", minQuantity: 1, unitPriceMinor: 80, currency: "NGN" },
+        { tier: "WHOLESALE", minQuantity: 10, unitPriceMinor: 100, currency: "NGN" }, // higher qty, higher price
       ],
     });
     expect(res.status).toBe(400);
@@ -89,7 +89,7 @@ describe("Pricing validation (§7F, §15 PRICING)", () => {
     const organizationId = await createOrg(app, owner, "Pricing Co");
 
     const res = await createProduct(app, organizationId, owner.accessToken, {
-      prices: [{ tier: "RETAIL", minQuantity: 1, unitPrice: 0, currency: "NGN" }],
+      prices: [{ tier: "RETAIL", minQuantity: 1, unitPriceMinor: 0, currency: "NGN" }],
     });
     expect(res.status).toBe(400);
   });
@@ -103,7 +103,7 @@ describe("Pricing validation (§7F, §15 PRICING)", () => {
     await request(app)
       .patch(`/api/organizations/${organizationId}/products/${createRes.body.id}`)
       .set("Authorization", `Bearer ${owner.accessToken}`)
-      .send({ prices: [{ tier: "RETAIL", minQuantity: 1, unitPrice: 50, currency: "NGN" }] });
+      .send({ prices: [{ tier: "RETAIL", minQuantity: 1, unitPriceMinor: 50, currency: "NGN" }] });
 
     const { prisma } = await import("../../src/lib/prisma");
     const audit = await prisma.auditLog.findFirst({

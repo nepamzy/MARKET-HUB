@@ -209,7 +209,11 @@ export type DirectorySearchQuery = z.infer<typeof directorySearchQuerySchema>;
 const productPriceInputSchema = z.object({
   tier: z.enum(PRICE_TIERS),
   minQuantity: z.number().int().min(1).default(1),
-  unitPrice: z.number().positive(),
+  // Integer minor units (e.g. kobo for NGN), never a decimal/float — see
+  // schema.prisma's doc comment on ProductPrice.unitPriceMinor for why this
+  // isn't a plain decimal amount. A client sending "19.99" naira must send
+  // 1999, not 19.99.
+  unitPriceMinor: z.number().int().positive(),
   // ISO 4217, e.g. "NGN", "KES", "GHS", "USD" -- validated for shape only,
   // never defaulted, so no currency is silently assumed for any market.
   currency: z
@@ -264,7 +268,7 @@ const productPricesSchema = z
     for (const tier of PRICE_TIERS) {
       const tierPrices = prices.filter((p) => p.tier === tier).sort((a, b) => a.minQuantity - b.minQuantity);
       for (let i = 1; i < tierPrices.length; i++) {
-        if (tierPrices[i]!.unitPrice > tierPrices[i - 1]!.unitPrice) {
+        if (tierPrices[i]!.unitPriceMinor > tierPrices[i - 1]!.unitPriceMinor) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: `${tier} unit price must not increase as quantity increases`,
@@ -330,3 +334,40 @@ export const organizationProductQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type OrganizationProductQuery = z.infer<typeof organizationProductQuerySchema>;
+
+// --- Phase 6: Cart, Checkout & Order foundation -------------------------
+
+/**
+ * Add-to-cart / quantity update (Phase 6 §7/§8). Deliberately carries no
+ * price, tier, or currency — the server always re-resolves those from the
+ * product's current ProductPrice rows, both when showing the cart and,
+ * authoritatively, at checkout. A client cannot submit a price at all,
+ * let alone an arbitrary one.
+ */
+export const addCartItemSchema = z.object({
+  productId: z.string().uuid(),
+  quantity: z.number().int().min(1),
+});
+export type AddCartItemInput = z.infer<typeof addCartItemSchema>;
+
+export const updateCartItemSchema = z.object({
+  quantity: z.number().int().min(1),
+});
+export type UpdateCartItemInput = z.infer<typeof updateCartItemSchema>;
+
+/**
+ * Cancellation (Phase 6 §12). `reason` is optional by design — the spec
+ * explicitly says to keep an undecided policy conservative rather than
+ * invent one, and requiring a reason is a product/UX policy call nobody
+ * has made yet.
+ */
+export const cancelOrderSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+export type CancelOrderInput = z.infer<typeof cancelOrderSchema>;
+
+export const orderListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type OrderListQuery = z.infer<typeof orderListQuerySchema>;

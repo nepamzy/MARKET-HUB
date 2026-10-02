@@ -17,7 +17,11 @@ declare module "express-serve-static-core" {
   }
 }
 
-const ROLE_RANK: Record<MembershipRole, number> = { STAFF: 0, MANAGER: 1, OWNER: 2 };
+// Exported for services that need the same role ordering outside the
+// :organizationId URL-param pattern this middleware assumes — e.g.
+// orders.service.ts, where the relevant organization is derived from an
+// order, not a route param.
+export const ROLE_RANK: Record<MembershipRole, number> = { STAFF: 0, MANAGER: 1, OWNER: 2 };
 
 /**
  * Loads the caller's membership for `:organizationId` from the database —

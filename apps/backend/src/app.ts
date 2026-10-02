@@ -9,10 +9,12 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { requestId } from "./middleware/requestId";
 import { adminRouter } from "./modules/admin/admin.routes";
 import { createAuthRouter } from "./modules/auth/auth.routes";
+import { cartRouter } from "./modules/cart/cart.routes";
 import { healthRouter } from "./modules/health/health.routes";
 import { createPublicInvitesRouter, organizationInvitationsRouter } from "./modules/invitations/invitations.routes";
 import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
+import { checkoutRouter, organizationOrdersRouter, ordersRouter } from "./modules/orders/orders.routes";
 import { categoriesRouter, organizationProductsRouter, publicProductsRouter } from "./modules/products/products.routes";
 import { directoryRouter, organizationSupplierRouter } from "./modules/supplier/supplier.routes";
 import { usersRouter } from "./modules/users/users.routes";
@@ -57,10 +59,14 @@ export function createApp(): Express {
   app.use("/api/organizations", organizationOnboardingRouter);
   app.use("/api/organizations", organizationSupplierRouter);
   app.use("/api/organizations", organizationProductsRouter);
+  app.use("/api/organizations", organizationOrdersRouter);
   app.use("/api/directory", directoryRouter);
   app.use("/api/products", publicProductsRouter);
   app.use("/api/categories", categoriesRouter);
   app.use("/api/invites", createPublicInvitesRouter());
+  app.use("/api/cart", cartRouter);
+  app.use("/api/checkout", checkoutRouter);
+  app.use("/api/orders", ordersRouter);
   app.use("/api/admin", adminRouter);
 
   app.use(notFoundHandler);

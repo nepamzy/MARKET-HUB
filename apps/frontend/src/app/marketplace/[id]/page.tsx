@@ -1,19 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
+import { FormAlert } from "@/components/FormAlert";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
+import { formatMinorUnits } from "@/lib/money";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
-import type { PublicProduct } from "@/lib/types";
+import type { CartView, PublicProduct } from "@/lib/types";
 
 function ProductDetailContent() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const authedFetch = useAuthedFetch();
   const [product, setProduct] = useState<PublicProduct | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -31,8 +37,27 @@ function ProductDetailContent() {
     load();
   }, [load]);
 
+  async function handleAddToCart() {
+    if (!product) return;
+    setAddError(null);
+    setAdding(true);
+    try {
+      await authedFetch<CartView>("/cart/items", {
+        method: "POST",
+        body: JSON.stringify({ productId: product.id, quantity }),
+      });
+      router.push("/cart");
+    } catch (err) {
+      setAddError(err instanceof ApiError ? err.message : "Could not add this item to your cart.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
   if (error) return <p className="text-sm text-danger">{error}</p>;
   if (!product) return <p className="text-sm text-text-secondary">Loading…</p>;
+
+  const isAvailable = (product.commercialOffer?.availability ?? "AVAILABLE") === "AVAILABLE";
 
   return (
     <div>
@@ -74,7 +99,7 @@ function ProductDetailContent() {
                     {price.minQuantity !== 1 ? "s" : ""}
                   </td>
                   <td className="py-2 font-medium text-navy">
-                    {price.currency} {price.unitPrice.toLocaleString()}
+                    {formatMinorUnits(price.unitPriceMinor, price.currency)}
                   </td>
                 </tr>
               ))}
@@ -90,6 +115,37 @@ function ProductDetailContent() {
           )}
         </section>
       )}
+
+      <section className="card mt-6">
+        {addError && (
+          <div className="mb-4">
+            <FormAlert>{addError}</FormAlert>
+          </div>
+        )}
+        {isAvailable ? (
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label htmlFor="quantity" className="field-label">
+                Quantity ({product.unit.toLowerCase()})
+              </label>
+              <input
+                id="quantity"
+                type="number"
+                min={product.minimumOrderQuantity ?? 1}
+                step={product.commercialOffer?.orderIncrement ?? 1}
+                className="field-input w-28"
+                value={quantity}
+                onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
+              />
+            </div>
+            <button type="button" onClick={handleAddToCart} disabled={adding} className="btn-primary">
+              {adding ? "Adding…" : "Add to cart"}
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary">This product is not currently available for purchase.</p>
+        )}
+      </section>
 
       <section className="card mt-6">
         <h2 className="text-lg font-semibold text-text-primary">Supplied by</h2>
