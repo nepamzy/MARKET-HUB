@@ -8,9 +8,24 @@ import { logger } from "./lib/logger";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { requestId } from "./middleware/requestId";
 import { adminRouter } from "./modules/admin/admin.routes";
-import { authRouter } from "./modules/auth/auth.routes";
+import { createAuthRouter } from "./modules/auth/auth.routes";
+import { cartRouter } from "./modules/cart/cart.routes";
 import { healthRouter } from "./modules/health/health.routes";
+import { createPublicInvitesRouter, organizationInvitationsRouter } from "./modules/invitations/invitations.routes";
+import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
+import { checkoutRouter, organizationOrdersRouter, ordersRouter } from "./modules/orders/orders.routes";
+import { categoriesRouter, organizationProductsRouter, publicProductsRouter } from "./modules/products/products.routes";
+import { negotiationDetailRouter, organizationNegotiationsRouter } from "./modules/procurement/negotiations.routes";
+import {
+  organizationPurchaseOrdersRouter,
+  organizationSupplierPurchaseOrdersRouter,
+  purchaseOrderDetailRouter,
+} from "./modules/procurement/purchaseOrders.routes";
+import { organizationRequisitionsRouter } from "./modules/procurement/requisitions.routes";
+import { organizationRfqInboxRouter, organizationRfqsRouter, rfqDetailRouter } from "./modules/procurement/rfqs.routes";
+import { organizationSupplierResponsesRouter } from "./modules/procurement/supplierResponses.routes";
+import { directoryRouter, organizationSupplierRouter } from "./modules/supplier/supplier.routes";
 import { usersRouter } from "./modules/users/users.routes";
 
 export function createApp(): Express {
@@ -46,9 +61,31 @@ export function createApp(): Express {
   app.use(cookieParser());
 
   app.use("/api/health", healthRouter);
-  app.use("/api/auth", authRouter);
+  app.use("/api/auth", createAuthRouter());
   app.use("/api/users", usersRouter);
   app.use("/api/organizations", organizationsRouter);
+  app.use("/api/organizations", organizationInvitationsRouter);
+  app.use("/api/organizations", organizationOnboardingRouter);
+  app.use("/api/organizations", organizationSupplierRouter);
+  app.use("/api/organizations", organizationProductsRouter);
+  app.use("/api/organizations", organizationOrdersRouter);
+  app.use("/api/organizations", organizationRequisitionsRouter);
+  app.use("/api/organizations", organizationRfqsRouter);
+  app.use("/api/organizations", organizationRfqInboxRouter);
+  app.use("/api/organizations", organizationSupplierResponsesRouter);
+  app.use("/api/organizations", organizationNegotiationsRouter);
+  app.use("/api/organizations", organizationPurchaseOrdersRouter);
+  app.use("/api/organizations", organizationSupplierPurchaseOrdersRouter);
+  app.use("/api/rfqs", rfqDetailRouter);
+  app.use("/api/negotiations", negotiationDetailRouter);
+  app.use("/api/purchase-orders", purchaseOrderDetailRouter);
+  app.use("/api/directory", directoryRouter);
+  app.use("/api/products", publicProductsRouter);
+  app.use("/api/categories", categoriesRouter);
+  app.use("/api/invites", createPublicInvitesRouter());
+  app.use("/api/cart", cartRouter);
+  app.use("/api/checkout", checkoutRouter);
+  app.use("/api/orders", ordersRouter);
   app.use("/api/admin", adminRouter);
 
   app.use(notFoundHandler);

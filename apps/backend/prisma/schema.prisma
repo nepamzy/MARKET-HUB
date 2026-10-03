@@ -43,9 +43,215 @@ enum AccountStatus {
   SUSPENDED
 }
 
+enum PermissionResource {
+  ORDERS
+  INVENTORY
+  PROCUREMENT
+  PAYMENTS
+  CATALOGUE
+  CUSTOMERS
+  KYC
+  MEMBERS
+  SETTINGS
+}
+
+enum PermissionLevel {
+  NONE
+  VIEW
+  EDIT
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Workflow status for a business's KYC submission (Phase 2). Deliberately
+/// separate from Organization.verificationStatus, which stays the simple,
+/// coarse flag other code already reads (e.g. anything just checking "is
+/// this org currently trusted"). This enum carries the richer in-progress
+/// states; the two are kept in sync by the same service-layer transition
+/// code, never by a trigger — see kyc.service.ts. NOT_STARTED is
+/// deliberately not a stored value: it's simply "no KYCSubmission row
+/// exists yet" (computed in the onboarding-status endpoint), so there is
+/// never a row whose only meaning is "nothing has happened."
+enum KYCStatus {
+  DRAFT
+  SUBMITTED
+  NEEDS_INFORMATION
+  VERIFIED
+  REJECTED
+}
+
+/// Supplier capability (Phase 3). Deliberately a SEPARATE enum from
+/// BusinessType, not an extension of it — per the Phase 3 spec's explicit
+/// instruction not to silently change BusinessType's existing meaning.
+/// The two answer different questions: BusinessType is the org's single
+/// registered category (chosen once at creation, drives KYC/profile
+/// requirements); SupplierCapability is zero-or-more roles a business
+/// says it can fulfill in the marketplace (a WHOLESALER org can also
+/// declare DISTRIBUTOR capability for certain product lines, for example).
+/// DISTRIBUTOR and SERVICE_PROVIDER exist here specifically because
+/// BusinessType has no equivalent values and the spec asks for them.
+enum SupplierCapability {
+  MANUFACTURER
+  DISTRIBUTOR
+  WHOLESALER
+  RETAILER
+  SERVICE_PROVIDER
+  OTHER
+}
+
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// Deliberately a small, closed enum rather than a free-text field or a
+/// full unit-conversion system (Phase 4 spec §13: "do not create a massive
+/// unit-conversion engine"). Covers count-based, weight-based, and
+/// volume/length-based units common across multiple sectors (food,
+/// agriculture, industrial, retail) without assuming any one of them.
+enum ProductUnit {
+  PIECE
+  PACK
+  CARTON
+  BOX
+  KILOGRAM
+  GRAM
+  LITRE
+  MILLILITRE
+  METRE
+  CASE
+  OTHER
+}
+
+/// Pricing tier (Phase 4 §12) — a foundation for future wholesale/business/
+/// retail pricing and quantity breaks, deliberately NOT an RFQ/negotiation
+/// system. Multiple ProductPrice rows per tier (different minQuantity)
+/// support quantity-based pricing without a transaction engine.
+enum PriceTier {
+  RETAIL
+  WHOLESALE
+  BUSINESS
+}
+
+/// Commercial availability (Phase 5) — deliberately NOT the same axis as
+/// Product.status (catalogue lifecycle) or Product.isDiscoverable
+/// (catalogue visibility). A product can be ACTIVE and isDiscoverable=true
+/// (visible, browsable) while its offer is OUT_OF_STOCK (buyer sees it,
+/// sees it's unavailable, and can watch for restock) — collapsing these
+/// into one status would make that ordinary, common state unrepresentable.
+enum OfferAvailability {
+  AVAILABLE
+  OUT_OF_STOCK
+  TEMPORARILY_UNAVAILABLE
+  DISCONTINUED
+}
+
+/// Requisition lifecycle (Phase 7 §8) — the smallest state machine that
+/// supports this phase's literal scope. CANCELLED is only reachable from
+/// DRAFT/SUBMITTED, never from RFQ_CREATED (Phase 7 §27: procurement records
+/// stay independent of each other's cleanup — cancelling a requisition after
+/// an RFQ already exists from it is not a transition this phase defines;
+/// the RFQ itself is the thing to act on at that point). Transitions are
+/// centralized in requisitions.service.ts, never a free-text status.
+enum RequisitionStatus {
+  DRAFT
+  SUBMITTED
+  RFQ_CREATED
+  CANCELLED
+}
+
+/// RFQ lifecycle: DRAFT -> ISSUED -> AWARDED (Phase 7 §9/§19, extended by
+/// Phase 8 §5). The Phase 7 prompt's own required RFQ API list (§19) had
+/// no cancel/close verb at all (unlike Requisition's, which explicitly
+/// says "cancel/close where appropriate") — adding CLOSED/CANCELLED states
+/// with no endpoint to reach them would be exactly the "implies
+/// functionality that doesn't exist" §32 forbids, so none were added then
+/// and none are added now. DRAFT is buyer-private (suppliers cannot see or
+/// access it); ISSUED is the point at which targeted suppliers gain
+/// visibility and may respond; AWARDED is terminal — set the instant an
+/// Award row is created (Phase 8 §5: "If the design requires the RFQ to
+/// become terminal after award, implement that explicitly") and blocks
+/// further responses, negotiation actions, and a second award (the latter
+/// also enforced by Award.rfqId's own unique constraint). See
+/// rfqs.service.ts for the full rationale and the explicit transition
+/// table.
+enum RfqStatus {
+  DRAFT
+  ISSUED
+  AWARDED
+}
+
+/// Per-supplier invitation state on an RFQ (Phase 7 §11). RESPONDED is set
+/// when that supplier's response is first SUBMITTED (never on a draft) —
+/// it is a buyer-visible signal, not the supplier's own response status.
+enum RfqSupplierTargetStatus {
+  INVITED
+  RESPONDED
+}
+
+/// Supplier response lifecycle (Phase 7 §14) — DRAFT is editable and
+/// supplier-private; SUBMITTED is immutable history (Phase 7 §14: "do not
+/// overwrite a supplier's historical submitted response"); WITHDRAWN is the
+/// only transition out of SUBMITTED, and is itself terminal. No negotiation/
+/// revision semantics exist yet (Phase 7 §15) — a withdrawn response is not
+/// editable or resubmittable; a supplier who changes their mind withdraws
+/// and would need a future phase's revision mechanism to offer again.
+enum SupplierResponseStatus {
+  DRAFT
+  SUBMITTED
+  WITHDRAWN
+}
+
+/// Negotiation lifecycle (Phase 8 §4) — OPEN is the only non-terminal
+/// state; ACCEPTED and CLOSED are both terminal (no reopening, no
+/// resubmission — Phase 8 §15 explicitly keeps this phase's scope at
+/// RFQ -> Comparison -> Negotiation -> Award, nothing beyond). Centralized
+/// in negotiations.service.ts's NEGOTIATION_STATUS_TRANSITIONS, same
+/// discipline as OrderStatus/RequisitionStatus/RfqStatus.
+enum NegotiationStatus {
+  OPEN
+  ACCEPTED
+  CLOSED
+}
+
+/// Which side authored a NegotiationEvent (Phase 8 §3/§4) — stored
+/// explicitly rather than inferred from actorUserId at read time, both so
+/// every event has an unambiguous, auditable author (§3: "every
+/// negotiation event must have a clear author") and so turn-alternation
+/// (see negotiations.service.ts) can be checked without an extra join.
+enum NegotiationEventAuthor {
+  BUYER
+  SUPPLIER
+}
+
+/// Purchase order lifecycle (Phase 9) — DRAFT -> PENDING_APPROVAL ->
+/// APPROVED -> CONFIRMED, the recommended foundation from the Phase 9
+/// spec, implemented literally with no added states. Deliberately no
+/// CANCELLED state: Phase 9 excludes payments/fulfillment/inventory, so
+/// there is no safe, well-defined point at which "cancel" would mean
+/// anything beyond "stop looking at this record," and the phase's own
+/// scope note says cancellation is optional ("only if logically safe and
+/// explicitly documented") — adding it with no real consequence to cancel
+/// would be exactly the "implies functionality that doesn't exist" trap
+/// RfqStatus's doc comment already called out. Transitions are centralized
+/// in purchaseOrders.service.ts's PURCHASE_ORDER_STATUS_TRANSITIONS, same
+/// discipline as every other lifecycle in this schema.
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  CONFIRMED
 }
 
 model User {
@@ -59,9 +265,26 @@ model User {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  memberships   OrganizationMembership[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]               @relation("ActorAuditLogs")
+  memberships                OrganizationMembership[]
+  refreshTokens              RefreshToken[]
+  auditLogs                  AuditLog[]                @relation("ActorAuditLogs")
+  grantedPermissions         MembershipPermission[]
+  createdInviteLinks         OrganizationInviteLink[]
+  joinRequests               OrganizationJoinRequest[] @relation("Requester")
+  reviewedJoinRequests       OrganizationJoinRequest[] @relation("Reviewer")
+  kycSubmissionsMade         KYCSubmission[]           @relation("KYCSubmitter")
+  kycReviews                 KYCSubmission[]           @relation("KYCReviewer")
+  carts                      Cart[]
+  ordersAsBuyer              Order[]
+  requisitionsRequested      Requisition[]
+  rfqsCreated                Rfq[]
+  supplierResponsesSubmitted SupplierResponse[]
+  negotiationsOpened         Negotiation[]
+  negotiationEvents          NegotiationEvent[]
+  awardsCreated              Award[]
+  purchaseOrdersCreated      PurchaseOrder[]           @relation("PurchaseOrderCreatedBy")
+  purchaseOrdersApproved     PurchaseOrder[]           @relation("PurchaseOrderApprovedBy")
+  purchaseOrdersConfirmed    PurchaseOrder[]           @relation("PurchaseOrderConfirmedBy")
 
   @@map("users")
 }
@@ -85,19 +308,244 @@ model RefreshToken {
 }
 
 model Organization {
-  id                 String              @id @default(uuid())
+  id                 String             @id @default(uuid())
   legalName          String
   businessType       BusinessType
-  status             OrganizationStatus  @default(ACTIVE)
-  verificationStatus VerificationStatus  @default(PENDING)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  status             OrganizationStatus @default(ACTIVE)
+  verificationStatus VerificationStatus @default(PENDING)
 
-  memberships OrganizationMembership[]
-  auditLogs   AuditLog[]                @relation("OrganizationAuditLogs")
+  // Business profile (Phase 2). All nullable — a business exists and can
+  // operate at a basic level before completing these; onboarding-status
+  // computation (kyc.service.ts) is what turns "filled in" into a gate for
+  // KYC submission, not a NOT NULL constraint, since a partially-onboarded
+  // business is a normal state, not a data-integrity error.
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  addressLine1       String?
+  city               String?
+  state              String?
+  country            String?
+  description        String?
+  registrationNumber String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships              OrganizationMembership[]
+  auditLogs                AuditLog[]                @relation("OrganizationAuditLogs")
+  inviteLinks              OrganizationInviteLink[]
+  joinRequests             OrganizationJoinRequest[]
+  kycSubmission            KYCSubmission?
+  supplierProfile          SupplierProfile?
+  products                 Product[]
+  ordersAsSeller           Order[]
+  requisitionsAsBuyer      Requisition[]
+  rfqsAsBuyer              Rfq[]
+  rfqSupplierTargets       RfqSupplierTarget[]
+  supplierResponses        SupplierResponse[]
+  negotiationsAsBuyer      Negotiation[]             @relation("NegotiationBuyer")
+  negotiationsAsSupplier   Negotiation[]             @relation("NegotiationSupplier")
+  awardsAsSupplier         Award[]
+  purchaseOrdersAsBuyer    PurchaseOrder[]           @relation("PurchaseOrderBuyer")
+  purchaseOrdersAsSupplier PurchaseOrder[]           @relation("PurchaseOrderSupplier")
 
   @@index([businessType])
   @@map("organizations")
+}
+
+/// One row per organization (1:1 — see the enum doc comment above for why a
+/// single mutable row, not a history table, is the deliberate design here:
+/// AuditLog already gives a full transition history, so this table only
+/// needs to hold current state). Resubmission after REJECTED or
+/// NEEDS_INFORMATION updates this same row rather than creating a new one.
+/// One row per organization (1:1, same rationale as KYCSubmission — this
+/// holds current state, AuditLog holds history). Location/coverage fields
+/// are free-text arrays, not enums or foreign keys into a country/region
+/// table — deliberately country-neutral (Phase 3 spec §11): no assumption
+/// of Nigerian states, CAC-style registration, or any single country's
+/// address structure. A future dedicated country/region reference table
+/// can be layered on top later without a breaking change here, since
+/// these remain plain strings either way.
+model SupplierProfile {
+  id               String               @id @default(uuid())
+  organizationId   String               @unique
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  capabilities     SupplierCapability[]
+  categories       String[]
+  countriesServed  String[]
+  regionsServed    String[]
+  citiesServed     String[]
+  minimumOrderInfo String?
+  // Two independently meaningful flags, not one: isActive is the business's
+  // own "we are currently operating" signal; isDiscoverable is the
+  // visibility toggle (business- or admin-controlled) for whether the
+  // profile appears in directory search at all. A profile can be active
+  // but deliberately hidden (isDiscoverable=false) while still editable.
+  isActive         Boolean              @default(true)
+  isDiscoverable   Boolean              @default(false)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@map("supplier_profiles")
+}
+
+/// Simple two-level hierarchy (top category -> optional subcategory via
+/// parentId), database-backed rather than a hardcoded enum, per the
+/// multi-sector requirement (Phase 4 §9) — the platform must not assume
+/// any single industry's taxonomy. Deliberately not a deep/generic
+/// tree-of-arbitrary-depth taxonomy engine: "do not create an
+/// unnecessarily complex taxonomy system in this phase."
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  parentId  String?
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryHierarchy")
+  createdAt DateTime   @default(now())
+
+  products Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+/// A product always belongs to exactly one organization (Phase 4 §6 —
+/// ownership is never ambiguous or shared). status and isDiscoverable are
+/// deliberately separate fields (Phase 4 §8, mirroring SupplierProfile's
+/// isActive/isDiscoverable split): a DRAFT product is never discoverable
+/// regardless of the flag, but an ACTIVE product can still be intentionally
+/// hidden. sku is unique per organization, not globally — two different
+/// businesses may legitimately use the same internal SKU scheme.
+/// Deliberately no hard delete anywhere in this module (§7: "should not
+/// simply disappear from historical references later") — ARCHIVED is the
+/// terminal state a product moves to instead, so future Order/RFQ line
+/// items (Phase 5+) can still reference a real row.
+model Product {
+  id                   String        @id @default(uuid())
+  organizationId       String
+  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                 String
+  description          String?
+  sku                  String?
+  categoryId           String?
+  category             Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brand                String?
+  unit                 ProductUnit   @default(PIECE)
+  status               ProductStatus @default(DRAFT)
+  isDiscoverable       Boolean       @default(false)
+  minimumOrderQuantity Int?
+  primaryImageUrl      String?
+  additionalImageUrls  String[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  prices             ProductPrice[]
+  commercialOffer    CommercialOffer?
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+  requisitionItems   RequisitionItem[]
+  rfqItems           RfqItem[]
+  purchaseOrderItems PurchaseOrderItem[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([categoryId])
+  @@index([status, isDiscoverable])
+  @@map("products")
+}
+
+/// Quantity-tiered pricing foundation (Phase 4 §12) — NOT an RFQ/quotation
+/// engine. Several rows per (product, tier) at different minQuantity
+/// breakpoints represent simple quantity-based pricing (e.g. WHOLESALE at
+/// qty>=10 vs qty>=100) without any negotiation workflow. currency is a
+/// plain validated string (ISO 4217 code, checked in the Zod schema), with
+/// no default value baked into the schema — defaulting silently to any one
+/// currency would bake in a Nigeria-only assumption the Phase 3 directory
+/// work deliberately avoided.
+///
+/// unitPriceMinor (Phase 6 money-representation correction): originally
+/// `Decimal(12,2)`. Phase 6 needed an authoritative, server-computed order
+/// total with zero floating-point/rounding ambiguity feeding a future
+/// payment integration — exactly what docs/ARCHITECTURE.md's "integer minor
+/// units, never floating point, for monetary accounting" rule exists for.
+/// Decimal(12,2) wasn't unsafe, but it was a second, inconsistent money
+/// representation alongside that rule, and propagating it into Order would
+/// have made two competing conventions permanent. Migrated in
+/// 20261003090000_money_minor_units (data preserved: existing values * 100,
+/// rounded — safe pre-launch, no real transactions exist yet). Assumes
+/// 2-decimal-place currencies (NGN, KES, GHS, USD — everything in scope for
+/// the Nigeria-first roadmap); a zero-decimal currency (e.g. JPY) is out of
+/// scope and not handled by this column.
+model ProductPrice {
+  id             String    @id @default(uuid())
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tier           PriceTier
+  minQuantity    Int       @default(1)
+  unitPriceMinor Int
+  currency       String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([productId, tier, minQuantity])
+  @@index([productId])
+  @@map("product_prices")
+}
+
+/// Commercial offer (Phase 5) — HOW an organization sells a Product,
+/// layered alongside it rather than merged into it (Phase 5 spec §5:
+/// "preserve the distinction... do not unnecessarily collapse"). 1:1,
+/// optional — a Product can exist in DRAFT with no offer configured yet,
+/// same pattern as SupplierProfile/KYCSubmission being optional companions
+/// to Organization. Deliberately does NOT repeat sellingUnit or
+/// minimumOrderQuantity, which already live on Product (Phase 4) — adding
+/// them here would be exactly the duplication §5 warns against. Pricing
+/// itself stays on the existing ProductPrice breakpoint model; this table
+/// only adds what Phase 4 didn't already cover: availability, an upper
+/// bound and ordering increment on top of Product.minimumOrderQuantity,
+/// and descriptive lead time.
+model CommercialOffer {
+  id             String            @id @default(uuid())
+  productId      String            @unique
+  product        Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  availability   OfferAvailability @default(AVAILABLE)
+  // Cross-checked against Product.minimumOrderQuantity in the service
+  // layer (maxQuantity must be >= minimumOrderQuantity when both are set)
+  // -- not enforceable as a DB constraint since the two fields live on
+  // different tables.
+  maxQuantity    Int?
+  orderIncrement Int?
+  leadTimeDays   Int?
+  leadTimeNote   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("commercial_offers")
+}
+
+/// One row per organization (1:1 — see the enum doc comment above for why a
+/// single mutable row, not a history table, is the deliberate design here:
+/// AuditLog already gives a full transition history, so this table only
+/// needs to hold current state). Resubmission after REJECTED or
+/// NEEDS_INFORMATION updates this same row rather than creating a new one.
+model KYCSubmission {
+  id                String       @id @default(uuid())
+  organizationId    String       @unique
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status            KYCStatus    @default(DRAFT)
+  submittedByUserId String?
+  submittedBy       User?        @relation("KYCSubmitter", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  submittedAt       DateTime?
+  reviewedByUserId  String?
+  reviewedBy        User?        @relation("KYCReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt        DateTime?
+  reviewNote        String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@map("kyc_submissions")
 }
 
 model OrganizationMembership {
@@ -110,10 +558,98 @@ model OrganizationMembership {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  permissions MembershipPermission[]
+
   @@unique([organizationId, userId])
   @@index([userId])
   @@index([organizationId])
   @@map("organization_memberships")
+}
+
+/// Business-scoped, per-resource permission overrides layered on top of
+/// MembershipRole (Phase 0.1 — see docs/handoff/PHASE_0_MASTER_BLUEPRINT.md
+/// §6.1). A row here only needs to exist when an owner overrides the
+/// resource's role default (packages/shared DEFAULT_PERMISSIONS); absence
+/// of a row means "use the default for this member's role." OWNER-role
+/// memberships never have rows here — ownership is never a partial or
+/// overridable access level, enforced in the service layer, not the schema.
+model MembershipPermission {
+  id              String                 @id @default(uuid())
+  membershipId    String
+  membership      OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  resource        PermissionResource
+  level           PermissionLevel
+  grantedByUserId String
+  grantedBy       User                   @relation(fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([membershipId, resource])
+  @@index([membershipId])
+  @@map("membership_permissions")
+}
+
+/// Business join / invitation (Phase 1 — see
+/// docs/handoff/PHASE_0_MASTER_BLUEPRINT.md §6.2 and the Phase 1
+/// continuation prompt). One model covers both required mechanisms:
+///   - Generic shareable link: inviteeEmail is null. Anyone who resolves
+///     the token and is authenticated may submit an OrganizationJoinRequest,
+///     which still requires explicit OWNER/MANAGER approval before any
+///     membership is created — possessing the link alone never grants access.
+///   - Direct invitation to a person: inviteeEmail is set at creation by an
+///     OWNER/MANAGER, who also chooses `role` up front. Only an authenticated
+///     user whose account email matches inviteeEmail may accept it
+///     (server-side check, never client-supplied). Acceptance creates the
+///     membership immediately with the pre-chosen role, because the
+///     approval already happened when the admin targeted that specific
+///     person and role — a second review step would be redundant, not
+///     safer. An OrganizationJoinRequest row is still created and marked
+///     APPROVED in the same transaction, so both paths share one audit
+///     trail and one "how did this member get here" query.
+model OrganizationInviteLink {
+  id              String         @id @default(uuid())
+  organizationId  String
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tokenHash       String         @unique
+  inviteeEmail    String?
+  role            MembershipRole @default(STAFF)
+  createdByUserId String
+  createdBy       User           @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  expiresAt       DateTime
+  maxUses         Int?
+  useCount        Int            @default(0)
+  revokedAt       DateTime?
+  createdAt       DateTime       @default(now())
+
+  joinRequests OrganizationJoinRequest[]
+
+  @@index([organizationId])
+  @@map("organization_invite_links")
+}
+
+/// A request to join a business — created either by a user submitting a
+/// request against a generic link (status starts PENDING, needs review) or
+/// automatically on acceptance of a direct invitation (status starts
+/// APPROVED, since the admin already decided when they created it). Never
+/// grants access by itself — membership creation is the explicit side
+/// effect of the APPROVED transition, performed server-side in the same
+/// transaction, never inferred from this row's status by any other code path.
+model OrganizationJoinRequest {
+  id               String                  @id @default(uuid())
+  organizationId   String
+  organization     Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User                    @relation("Requester", fields: [userId], references: [id], onDelete: Cascade)
+  inviteLinkId     String?
+  inviteLink       OrganizationInviteLink? @relation(fields: [inviteLinkId], references: [id], onDelete: SetNull)
+  status           JoinRequestStatus       @default(PENDING)
+  reviewedByUserId String?
+  reviewedBy       User?                   @relation("Reviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  createdAt        DateTime                @default(now())
+
+  @@index([organizationId, status])
+  @@index([userId])
+  @@map("organization_join_requests")
 }
 
 /// Audit trail for security-relevant and administrative actions
@@ -136,4 +672,584 @@ model AuditLog {
   @@index([organizationId])
   @@index([action])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------
+// Phase 6 — Cart, Checkout & Order Foundation
+// ---------------------------------------------------------------------
+
+/// Explicit, centrally-validated order lifecycle (Phase 6 §11) — never a
+/// free-text status a client can set directly. Deliberately has no PAID or
+/// AWAITING_PAYMENT state: this phase creates no payment integration and
+/// must never imply one exists (Phase 6 §9/§27). Deliberately has no
+/// DELIVERED/SHIPPED state either — those require fulfillment
+/// infrastructure this phase does not build. Transitions are centralized
+/// in orders.service.ts's ORDER_STATUS_TRANSITIONS map, not scattered
+/// across route handlers.
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+/// A buyer's shopping cart (Phase 6). Owned by a User, not an Organization:
+/// B2C marketplace buyers have no organization of their own in this
+/// project's model — only businesses do (see CLAUDE.md's fixed boundary
+/// "business identity belongs to Organization.businessType", which has no
+/// analogue for an individual customer). This mirrors the project's
+/// existing B2C information architecture (docs/handoff/INFORMATION_
+/// ARCHITECTURE.md: "Customer: Home, Discover, Orders, Cart, Account" —
+/// Cart belongs to the Customer, not a business entity).
+///
+/// A cart may legitimately hold items from multiple seller organizations
+/// (Phase 6 §14) — checkout decomposes it into one independent Order per
+/// seller, which is the project's existing approved decision ("multi-seller
+/// checkout = independent seller orders", docs/handoff/DECISION_REGISTER.md)
+/// applied here rather than invented fresh. Cart itself therefore carries
+/// no single sellerOrganizationId.
+///
+/// checkedOutAt is both a state marker AND the idempotency mechanism for
+/// checkout (Phase 6 §18): checkout atomically claims a cart by flipping
+/// this from null exactly once (same conditional-UPDATE pattern already
+/// used for refresh-token rotation in lib/refreshTokens.ts) — a second,
+/// concurrent checkout request for the same cart loses the claim and fails
+/// cleanly instead of creating a duplicate set of orders. A checked-out
+/// cart is never reused; the next add-to-cart creates a fresh one. This is
+/// deliberately not a full client-supplied-idempotency-key system — see
+/// cart.service.ts for the documented limitation.
+model Cart {
+  id           String    @id @default(uuid())
+  buyerUserId  String
+  buyerUser    User      @relation(fields: [buyerUserId], references: [id], onDelete: Cascade)
+  checkedOutAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items CartItem[]
+
+  @@index([buyerUserId])
+  @@map("carts")
+}
+
+/// Always resolves RETAIL-tier pricing (Phase 6 keeps the marketplace cart
+/// a B2C surface, consistent with how `searchProducts`/the public
+/// marketplace already works — WHOLESALE/BUSINESS tier purchasing is a B2B
+/// procurement concern explicitly out of scope for this phase, Phase 6 §5).
+/// No price is stored here — quantity is the only buyer input; unit price
+/// is always re-resolved server-side from current ProductPrice rows,
+/// both for display and, authoritatively, at checkout (Phase 6 §8: "Do
+/// not allow the client to submit an arbitrary total").
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+/// One Order per seller organization per checkout (Phase 6 §14/§15) — the
+/// "independent seller orders" decision. subtotalMinor and totalMinor are
+/// equal in this phase: no fees, delivery charges, tax, or commission exist
+/// yet (Phase 6 §15 explicitly forbids inventing them), so both fields are
+/// stored for forward compatibility with the payment/fulfillment phases
+/// that will need to add charges without changing this shape, not because
+/// they currently differ. cancelledAt/cancelReason cover the Phase 6 §12
+/// cancellation foundation; WHO cancelled it is recorded via AuditLog
+/// (ORDER_CANCELLED), not a redundant relation here.
+model Order {
+  id                   String       @id @default(uuid())
+  buyerUserId          String
+  buyerUser            User         @relation(fields: [buyerUserId], references: [id], onDelete: Restrict)
+  sellerOrganizationId String
+  sellerOrganization   Organization @relation(fields: [sellerOrganizationId], references: [id], onDelete: Restrict)
+  status               OrderStatus  @default(PENDING)
+  currency             String
+  subtotalMinor        Int
+  totalMinor           Int
+  totalQuantity        Int
+  cancelledAt          DateTime?
+  cancelReason         String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  items OrderItem[]
+
+  @@index([buyerUserId])
+  @@index([sellerOrganizationId])
+  @@index([status])
+  @@map("orders")
+}
+
+/// Immutable purchase snapshot (Phase 6 §10) — the entire point of this
+/// table is that it must NOT change when the seller later edits the
+/// product. productId stays a real foreign key (safe because Phase 4 never
+/// hard-deletes products — "ARCHIVED is the terminal state... so future
+/// Order line items can still reference a real row", see Product's doc
+/// comment) but every field a buyer actually needs to see their order
+/// history is duplicated here as a plain value, never read through that
+/// relation. productPriceId is deliberately a loose, unenforced reference
+/// (no FK) — the same polymorphic-reference pattern AuditLog already uses
+/// for targetType/targetId — because Phase 4's price-update flow deletes
+/// and recreates ALL of a product's ProductPrice rows on every edit
+/// (products.service.ts: "prices, when supplied, is the COMPLETE new price
+/// list"); a real FK with onDelete:Restrict here would make it impossible
+/// for a seller to ever update prices again once a single order existed.
+model OrderItem {
+  id                     String      @id @default(uuid())
+  orderId                String
+  order                  Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId              String
+  product                Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productPriceId         String?
+  productName            String
+  sellerOrganizationName String
+  unit                   ProductUnit
+  tier                   PriceTier
+  quantity               Int
+  unitPriceMinor         Int
+  currency               String
+  lineTotalMinor         Int
+  createdAt              DateTime    @default(now())
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ---------------------------------------------------------------------
+// Phase 7 — Procurement Engine: Requisition & RFQ Foundation
+//
+// A second, deliberately separate commercial path alongside Phase 6's
+// Discover -> Cart -> Checkout -> Order (Phase 7 §6). A Requisition or RFQ
+// never creates an Order, and a SupplierResponse never creates a Payment —
+// this phase covers only Need -> Requisition -> RFQ -> Supplier Response.
+// Comparison, negotiation, award, and purchase orders are explicitly later
+// phases and introduce no schema here.
+// ---------------------------------------------------------------------
+
+/// A buyer organization's internal procurement need (Phase 7 §7).
+/// sequenceNumber exists only to generate a stable human-facing reference
+/// ("REQ-000123" — see requisitions.service.ts) without a second string
+/// column to keep in sync; it is never exposed as the primary key.
+/// Deliberately never hard-deleted (Phase 7 §8: "must remain historically
+/// visible after submission") — CANCELLED is the terminal state instead,
+/// mirroring Product's ARCHIVED/no-hard-delete pattern.
+model Requisition {
+  id                  String            @id @default(uuid())
+  sequenceNumber      Int               @unique @default(autoincrement())
+  buyerOrganizationId String
+  buyerOrganization   Organization      @relation(fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  requestedByUserId   String
+  requestedByUser     User              @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  title               String
+  status              RequisitionStatus @default(DRAFT)
+  submittedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  items RequisitionItem[]
+  rfqs  Rfq[]
+
+  @@index([buyerOrganizationId])
+  @@index([status])
+  @@map("requisitions")
+}
+
+/// One requested line within a Requisition (Phase 7 §7). productId is
+/// deliberately nullable — "a requisition must be able to represent a
+/// product that is NOT already in the MarketBuzz catalogue" (§7) — so
+/// itemName/unit/quantity are always the authoritative requested values,
+/// never read only through the Product relation. onDelete: SetNull on
+/// productId (not Restrict) because this row's own fields already carry
+/// everything needed to preserve history; losing the catalogue link, if a
+/// product were ever removed, would not lose any procurement information.
+model RequisitionItem {
+  id            String      @id @default(uuid())
+  requisitionId String
+  requisition   Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  productId     String?
+  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  itemName      String
+  quantity      Int
+  unit          ProductUnit
+  specification String?
+  createdAt     DateTime    @default(now())
+
+  rfqItems RfqItem[]
+
+  @@index([requisitionId])
+  @@map("requisition_items")
+}
+
+/// A buyer's request for supplier quotations, always created from exactly
+/// one Requisition (Phase 7 §9) — requisitionId is a real FK with
+/// onDelete: Restrict, never orphaned (Phase 7 §20: "do not create...RFQs
+/// without valid requisition ownership"). See RfqStatus's doc comment in
+/// the enum section for why there is no CLOSED/CANCELLED state this phase.
+model Rfq {
+  id                  String       @id @default(uuid())
+  sequenceNumber      Int          @unique @default(autoincrement())
+  buyerOrganizationId String
+  buyerOrganization   Organization @relation(fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  requisitionId       String
+  requisition         Requisition  @relation(fields: [requisitionId], references: [id], onDelete: Restrict)
+  createdByUserId     String
+  createdByUser       User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  title               String
+  description         String?
+  status              RfqStatus    @default(DRAFT)
+  responseDeadline    DateTime?
+  issuedAt            DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  items         RfqItem[]
+  targets       RfqSupplierTarget[]
+  responses     SupplierResponse[]
+  negotiations  Negotiation[]
+  award         Award?
+  purchaseOrder PurchaseOrder?
+
+  @@index([buyerOrganizationId])
+  @@index([requisitionId])
+  @@index([status])
+  @@map("rfqs")
+}
+
+/// One requested line within an RFQ (Phase 7 §10) — a snapshot COPY of a
+/// RequisitionItem at RFQ-creation time, never a live reference a later
+/// requisition edit could change. requisitionItemId is kept as a loose
+/// provenance pointer (SetNull — the RFQ item's own fields are already the
+/// complete, authoritative requirement) purely so the UI can show "copied
+/// from requisition line X"; it is never read from at request time. There
+/// is deliberately no update endpoint for this model anywhere in the
+/// service layer — "the original RFQ requirement must remain immutable
+/// after issuance" (§10) is satisfied by never exposing a mutation path at
+/// all, which also makes it trivially true before issuance too.
+model RfqItem {
+  id                String           @id @default(uuid())
+  rfqId             String
+  rfq               Rfq              @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  requisitionItemId String?
+  requisitionItem   RequisitionItem? @relation(fields: [requisitionItemId], references: [id], onDelete: SetNull)
+  productId         String?
+  product           Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  itemName          String
+  specification     String?
+  quantity          Int
+  unit              ProductUnit
+  createdAt         DateTime         @default(now())
+
+  responseItems         SupplierResponseItem[]
+  negotiationEventItems NegotiationEventItem[]
+  purchaseOrderItems    PurchaseOrderItem[]
+
+  @@index([rfqId])
+  @@map("rfq_items")
+}
+
+/// Which supplier organizations an RFQ was sent to (Phase 7 §11) — the
+/// buyer-controlled invitation list. Reuses the existing Organization/
+/// SupplierProfile foundation for supplier identity; this table only adds
+/// the per-(RFQ, supplier) invitation relationship itself, never a second
+/// supplier model. onDelete: Restrict on supplierOrganizationId — an
+/// invitation must always resolve to a real organization, never orphaned.
+model RfqSupplierTarget {
+  id                     String                  @id @default(uuid())
+  rfqId                  String
+  rfq                    Rfq                     @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplierOrganizationId String
+  supplierOrganization   Organization            @relation(fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  status                 RfqSupplierTargetStatus @default(INVITED)
+  invitedAt              DateTime                @default(now())
+  respondedAt            DateTime?
+
+  @@unique([rfqId, supplierOrganizationId])
+  @@index([supplierOrganizationId])
+  @@map("rfq_supplier_targets")
+}
+
+/// A targeted supplier's response to one RFQ (Phase 7 §12). One row per
+/// (rfq, supplier) — not a history table — because this phase has no
+/// revision semantics (§14/§15): a DRAFT is edited in place until SUBMITTED,
+/// at which point it becomes read-only except for the WITHDRAWN transition.
+/// rfqId/supplierOrganizationId use onDelete: Restrict — a response must
+/// always remain attributable to a real RFQ and a real organization.
+model SupplierResponse {
+  id                     String                 @id @default(uuid())
+  rfqId                  String
+  rfq                    Rfq                    @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  supplierOrganizationId String
+  supplierOrganization   Organization           @relation(fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  submittedByUserId      String?
+  submittedByUser        User?                  @relation(fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  status                 SupplierResponseStatus @default(DRAFT)
+  notes                  String?
+  submittedAt            DateTime?
+  withdrawnAt            DateTime?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  items         SupplierResponseItem[]
+  negotiation   Negotiation?
+  award         Award?
+  purchaseOrder PurchaseOrder?
+
+  @@unique([rfqId, supplierOrganizationId])
+  @@index([supplierOrganizationId])
+  @@map("supplier_responses")
+}
+
+/// One offered line within a SupplierResponse (Phase 7 §12/§13), mapped to
+/// exactly one RfqItem (never a client-supplied arbitrary line — Phase 7
+/// §24: "response item maps to valid RFQ item"). unitPriceMinor/currency
+/// follow the Phase 6 integer-minor-unit convention exactly — see
+/// schema.prisma's ProductPrice doc comment for why this is never a
+/// Decimal/float. rfqItemId uses onDelete: Restrict: an offered line must
+/// always remain attributable to a real requested line.
+model SupplierResponseItem {
+  id             String           @id @default(uuid())
+  responseId     String
+  response       SupplierResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  rfqItemId      String
+  rfqItem        RfqItem          @relation(fields: [rfqItemId], references: [id], onDelete: Restrict)
+  quantity       Int
+  unit           ProductUnit
+  unitPriceMinor Int
+  currency       String
+  leadTimeDays   Int?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([responseId, rfqItemId])
+  @@map("supplier_response_items")
+}
+
+// ---------------------------------------------------------------------
+// Phase 8 — Procurement Comparison, Negotiation & Award
+//
+// Extends Phase 7 without rewriting it: Supplier Responses -> Comparison
+// -> Negotiation -> Award. Comparison is a read-only aggregation (no new
+// table). Negotiation and Award are new, deliberately separate from
+// SupplierResponse — the original submitted response is never mutated;
+// a negotiation is a parallel, append-only thread of counter-offers, and
+// an award simply records which response won. Still no Order, Payment,
+// or Purchase Order is created from any of this (Phase 8 §15).
+// ---------------------------------------------------------------------
+
+/// One negotiation thread against one SUBMITTED SupplierResponse (Phase 8
+/// §3). `@unique` on responseId: at most one negotiation ever exists per
+/// response — there is no revision/reopening semantics this phase (Phase
+/// 8 §15 keeps scope at Award, nothing beyond), so this is the smallest
+/// clean design rather than a full thread-per-response history table.
+/// buyerOrganizationId/supplierOrganizationId are denormalized from
+/// rfq.buyerOrganizationId / response.supplierOrganizationId (both are
+/// themselves immutable once the negotiation exists) purely so every
+/// authorization check here is a direct read with no join, mirroring
+/// Order's denormalized buyerUserId/sellerOrganizationId. Two separate
+/// relations to Organization require named @relation blocks below.
+model Negotiation {
+  id                     String            @id @default(uuid())
+  rfqId                  String
+  rfq                    Rfq               @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  responseId             String            @unique
+  response               SupplierResponse  @relation(fields: [responseId], references: [id], onDelete: Restrict)
+  buyerOrganizationId    String
+  buyerOrganization      Organization      @relation("NegotiationBuyer", fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  supplierOrganizationId String
+  supplierOrganization   Organization      @relation("NegotiationSupplier", fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  openedByUserId         String
+  openedByUser           User              @relation(fields: [openedByUserId], references: [id], onDelete: Restrict)
+  status                 NegotiationStatus @default(OPEN)
+  closedAt               DateTime?
+  closeReason            String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  events NegotiationEvent[]
+
+  @@index([rfqId])
+  @@index([buyerOrganizationId])
+  @@index([supplierOrganizationId])
+  @@map("negotiations")
+}
+
+/// One offer in a negotiation thread (Phase 8 §3) — append-only, never
+/// updated or deleted once created, which is what makes "do not overwrite
+/// historical offers" (§6) trivially true: there is no update endpoint for
+/// this model, exactly the same discipline Phase 7 used for RfqItem.
+/// authorRole is validated server-side against the actor's actual
+/// organization membership at creation time (negotiations.service.ts) —
+/// never client-asserted. onDelete: Cascade from its parent Negotiation is
+/// safe because Negotiation itself is never hard-deleted either.
+model NegotiationEvent {
+  id            String                 @id @default(uuid())
+  negotiationId String
+  negotiation   Negotiation            @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  authorRole    NegotiationEventAuthor
+  actorUserId   String
+  actorUser     User                   @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  message       String?
+  createdAt     DateTime               @default(now())
+
+  items NegotiationEventItem[]
+
+  @@index([negotiationId])
+  @@map("negotiation_events")
+}
+
+/// One proposed line within a NegotiationEvent (Phase 8 §3), mapped to a
+/// real RfqItem (never a client-supplied arbitrary line, same discipline
+/// as SupplierResponseItem). Integer minor units + explicit currency,
+/// continuing the Phase 6/7 money convention exactly — never Decimal or
+/// float, never an assumed/defaulted currency, never FX conversion.
+model NegotiationEventItem {
+  id             String           @id @default(uuid())
+  eventId        String
+  event          NegotiationEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  rfqItemId      String
+  rfqItem        RfqItem          @relation(fields: [rfqItemId], references: [id], onDelete: Restrict)
+  quantity       Int
+  unit           ProductUnit
+  unitPriceMinor Int
+  currency       String
+  notes          String?
+
+  @@unique([eventId, rfqItemId])
+  @@map("negotiation_event_items")
+}
+
+/// The procurement boundary between RFQ evaluation and the future
+/// Award -> Purchase Order phase (Phase 8 §5) — deliberately just a
+/// record of the decision, not a workflow: no status field, since this
+/// phase defines no cancel/reverse action for an award ("do not invent
+/// unnecessary states simply for completeness"). `@unique` on both rfqId
+/// and responseId means at most one award can ever exist per RFQ (and
+/// per response) — the DB-level idempotency backstop behind the
+/// service-layer RfqStatus check in rfqs.service.ts's awardRfq.
+model Award {
+  id                     String           @id @default(uuid())
+  rfqId                  String           @unique
+  rfq                    Rfq              @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  responseId             String           @unique
+  response               SupplierResponse @relation(fields: [responseId], references: [id], onDelete: Restrict)
+  supplierOrganizationId String
+  supplierOrganization   Organization     @relation(fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  awardedByUserId        String
+  awardedByUser          User             @relation(fields: [awardedByUserId], references: [id], onDelete: Restrict)
+  reason                 String?
+  createdAt              DateTime         @default(now())
+
+  purchaseOrder PurchaseOrder?
+
+  @@map("awards")
+}
+
+// ---------------------------------------------------------------------
+// Phase 9 — Purchase Order & Procurement Award Execution Foundation
+//
+// Award -> Purchase Order -> PO Approval -> Supplier Confirmation. A
+// PurchaseOrder is created from exactly one Award (Award.id is @unique on
+// PurchaseOrder.awardId, enforcing one PO per Award at the database level,
+// not just in the service layer) and represents the final, immutable
+// commercial record of what was awarded — resolved from the Award's
+// SupplierResponse/accepted Negotiation at creation time, never rebuilt
+// later and never mutating those historical rows. No payment, inventory
+// reservation, shipment, or delivery tracking is created from any of this
+// (Phase 9 scope boundary) — this is strictly Award -> PO -> Approval ->
+// Supplier Confirmation.
+// ---------------------------------------------------------------------
+
+/// A buyer organization's purchase order, created from exactly one Award
+/// (Phase 9). buyerOrganizationId/supplierOrganizationId are denormalized
+/// from the award's own RFQ/response (both immutable once the award
+/// exists) for the same reason Negotiation denormalizes them — direct,
+/// join-free authorization checks. rfqId and responseId are kept as loose
+/// provenance references (the PO's own items are the authoritative
+/// snapshot, never read live through these) mirroring RfqItem's
+/// requisitionItemId pattern. sequenceNumber follows the exact
+/// Requisition/Rfq reference-number convention ("PO-000123").
+model PurchaseOrder {
+  id                       String              @id @default(uuid())
+  sequenceNumber           Int                 @unique @default(autoincrement())
+  awardId                  String              @unique
+  award                    Award               @relation(fields: [awardId], references: [id], onDelete: Restrict)
+  rfqId                    String              @unique
+  rfq                      Rfq                 @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  responseId               String              @unique
+  response                 SupplierResponse    @relation(fields: [responseId], references: [id], onDelete: Restrict)
+  buyerOrganizationId      String
+  buyerOrganization        Organization        @relation("PurchaseOrderBuyer", fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  buyerOrganizationName    String
+  supplierOrganizationId   String
+  supplierOrganization     Organization        @relation("PurchaseOrderSupplier", fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  supplierOrganizationName String
+  createdByUserId          String
+  createdByUser            User                @relation("PurchaseOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  status                   PurchaseOrderStatus @default(DRAFT)
+  currency                 String
+  subtotalMinor            Int
+  totalMinor               Int
+  totalQuantity            Int
+  notes                    String?
+  submittedForApprovalAt   DateTime?
+  approvedAt               DateTime?
+  approvedByUserId         String?
+  approvedByUser           User?               @relation("PurchaseOrderApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  confirmedAt              DateTime?
+  confirmedByUserId        String?
+  confirmedByUser          User?               @relation("PurchaseOrderConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: Restrict)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  items PurchaseOrderItem[]
+
+  @@index([buyerOrganizationId])
+  @@index([supplierOrganizationId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+/// One snapshotted line on a PurchaseOrder (Phase 9) — the final awarded
+/// terms for that line, resolved once at PO-creation time from either the
+/// original SupplierResponseItem or (if the response was negotiated and
+/// the negotiation was ACCEPTED) the most recent NegotiationEventItem.
+/// productId is nullable (SetNull) to support custom/non-catalogue items,
+/// same pattern as RequisitionItem/RfqItem; itemName/specification/
+/// quantity/unit/unitPriceMinor/currency/lineTotalMinor are always the
+/// authoritative values a buyer or supplier needs to understand what was
+/// awarded — never re-read through productId, so this row remains
+/// meaningful even if the live product is edited or archived later.
+/// rfqItemId is kept only as a loose provenance pointer (SetNull), exactly
+/// like SupplierResponseItem/NegotiationEventItem's own rfqItemId.
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  rfqItemId       String?
+  rfqItem         RfqItem?      @relation(fields: [rfqItemId], references: [id], onDelete: SetNull)
+  productId       String?
+  product         Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  itemName        String
+  specification   String?
+  quantity        Int
+  unit            ProductUnit
+  unitPriceMinor  Int
+  currency        String
+  lineTotalMinor  Int
+  createdAt       DateTime      @default(now())
+
+  @@index([purchaseOrderId])
+  @@map("purchase_order_items")
 }
