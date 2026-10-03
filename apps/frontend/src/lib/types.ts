@@ -301,3 +301,118 @@ export interface OrderView {
   viewerRole?: "buyer" | "seller";
   viewerSellerRole?: MembershipRole | null;
 }
+
+// --- Phase 7: Procurement Engine — Requisition & RFQ foundation --------
+
+export type RequisitionStatusValue = "DRAFT" | "SUBMITTED" | "RFQ_CREATED" | "CANCELLED";
+export type RfqStatusValue = "DRAFT" | "ISSUED";
+export type RfqSupplierTargetStatusValue = "INVITED" | "RESPONDED";
+export type SupplierResponseStatusValue = "DRAFT" | "SUBMITTED" | "WITHDRAWN";
+
+export interface RequisitionItemView {
+  id: string;
+  productId: string | null;
+  itemName: string;
+  quantity: number;
+  unit: ProductUnitValue;
+  specification: string | null;
+  createdAt: string;
+}
+
+export interface RequisitionView {
+  id: string;
+  reference: string;
+  sequenceNumber: number;
+  buyerOrganizationId: string;
+  requestedByUserId: string;
+  title: string;
+  status: RequisitionStatusValue;
+  submittedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: RequisitionItemView[];
+}
+
+export interface RfqItemView {
+  id: string;
+  requisitionItemId: string | null;
+  productId: string | null;
+  itemName: string;
+  specification: string | null;
+  quantity: number;
+  unit: ProductUnitValue;
+  createdAt: string;
+}
+
+export interface RfqTargetView {
+  id: string;
+  supplierOrganizationId: string;
+  supplierOrganization?: { id: string; legalName: string };
+  status: RfqSupplierTargetStatusValue;
+  invitedAt: string;
+  respondedAt: string | null;
+}
+
+export interface SupplierResponseItemView {
+  id: string;
+  rfqItemId: string;
+  quantity: number;
+  unit: ProductUnitValue;
+  unitPriceMinor: number;
+  currency: string;
+  leadTimeDays: number | null;
+  notes: string | null;
+}
+
+export interface SupplierResponseView {
+  id: string;
+  rfqId?: string;
+  supplierOrganizationId: string;
+  supplierOrganization?: { id: string; legalName: string };
+  status: SupplierResponseStatusValue;
+  notes: string | null;
+  submittedAt: string | null;
+  withdrawnAt: string | null;
+  items: SupplierResponseItemView[];
+}
+
+export interface RfqListEntry {
+  id: string;
+  reference: string;
+  sequenceNumber: number;
+  title: string;
+  status: RfqStatusValue;
+  responseDeadline: string | null;
+  issuedAt: string | null;
+  createdAt: string;
+  _count: { targets: number; responses: number };
+}
+
+/** The shared RFQ detail shape — fields present depend on viewerRole, same
+ * convention as OrderView's viewerRole-gated fields. */
+export interface RfqView {
+  id: string;
+  reference: string;
+  sequenceNumber: number;
+  buyerOrganizationId: string;
+  requisitionId: string;
+  createdByUserId?: string;
+  title: string;
+  description: string | null;
+  status: RfqStatusValue;
+  responseDeadline: string | null;
+  issuedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: RfqItemView[];
+  viewerRole: "buyer" | "supplier";
+  viewerSupplierOrganizationId: string | null;
+  // Buyer-only:
+  targets?: RfqTargetView[];
+  responses?: SupplierResponseView[];
+  // Supplier-only:
+  target?: { status: RfqSupplierTargetStatusValue; invitedAt: string; respondedAt: string | null };
+  response?: SupplierResponseView | null;
+}

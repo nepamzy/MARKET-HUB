@@ -371,3 +371,126 @@ export const orderListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
+
+// --- Phase 7: Procurement Engine — Requisition & RFQ foundation --------
+
+/**
+ * One requested line (Phase 7 §7/§24). productId is optional — a
+ * requisition must be able to represent a product not already in the
+ * catalogue — but itemName/quantity/unit are always required regardless,
+ * since they are the authoritative requested values either way.
+ */
+const requisitionItemInputSchema = z.object({
+  productId: z.string().uuid().optional(),
+  itemName: z.string().trim().min(1).max(200),
+  quantity: z.number().int().positive(),
+  unit: z.enum(PRODUCT_UNITS),
+  specification: z.string().max(1000).optional(),
+});
+
+export const createRequisitionSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  items: z.array(requisitionItemInputSchema).min(1).max(100),
+});
+export type CreateRequisitionInput = z.infer<typeof createRequisitionSchema>;
+
+/**
+ * Draft update (Phase 7 §8) — only ever accepted by the service layer while
+ * status is DRAFT. `items`, when supplied, is the COMPLETE replacement list
+ * (same "replace, not merge" convention as Phase 5's ProductPrice array).
+ */
+export const updateRequisitionDraftSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  items: z.array(requisitionItemInputSchema).min(1).max(100).optional(),
+});
+export type UpdateRequisitionDraftInput = z.infer<typeof updateRequisitionDraftSchema>;
+
+export const cancelRequisitionSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+export type CancelRequisitionInput = z.infer<typeof cancelRequisitionSchema>;
+
+export const requisitionListQuerySchema = z.object({
+  status: z.enum(["DRAFT", "SUBMITTED", "RFQ_CREATED", "CANCELLED"]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type RequisitionListQuery = z.infer<typeof requisitionListQuerySchema>;
+
+/**
+ * RFQ creation (Phase 7 §9/§10/§11). Deliberately carries no items of its
+ * own — the service layer copies them from the originating (already
+ * SUBMITTED) requisition's own items, which is what makes "the original
+ * RFQ requirement must remain immutable after issuance" trivially true: no
+ * endpoint ever accepts buyer-supplied RFQ item content at all.
+ */
+export const createRfqSchema = z.object({
+  requisitionId: z.string().uuid(),
+  title: z.string().trim().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  responseDeadline: z.coerce.date().min(new Date(), "Response deadline must be in the future").optional(),
+  supplierOrganizationIds: z.array(z.string().uuid()).min(1).max(50),
+});
+export type CreateRfqInput = z.infer<typeof createRfqSchema>;
+
+export const addRfqSupplierTargetsSchema = z.object({
+  supplierOrganizationIds: z.array(z.string().uuid()).min(1).max(50),
+});
+export type AddRfqSupplierTargetsInput = z.infer<typeof addRfqSupplierTargetsSchema>;
+
+export const rfqListQuerySchema = z.object({
+  status: z.enum(["DRAFT", "ISSUED"]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type RfqListQuery = z.infer<typeof rfqListQuerySchema>;
+
+/**
+ * Supplier response item input (Phase 7 §12/§13/§24). Uses the Phase 6
+ * integer-minor-unit money convention exactly — see
+ * productPriceInputSchema above for why this is never a decimal amount.
+ * rfqItemId membership (must belong to the RFQ being responded to) is
+ * validated in the service layer, not here — it requires a database read.
+ */
+const supplierResponseItemInputSchema = z.object({
+  rfqItemId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  unit: z.enum(PRODUCT_UNITS),
+  unitPriceMinor: z.number().int().positive(),
+  currency: z
+    .string()
+    .length(3)
+    .regex(/^[A-Z]{3}$/, "currency must be a 3-letter ISO 4217 code"),
+  leadTimeDays: z.number().int().min(0).max(3650).optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+const supplierResponseItemsSchema = z
+  .array(supplierResponseItemInputSchema)
+  .min(1)
+  .max(100)
+  .superRefine((items, ctx) => {
+    const seen = new Set<string>();
+    for (const [i, item] of items.entries()) {
+      if (seen.has(item.rfqItemId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, "rfqItemId"],
+          message: "Duplicate response for the same RFQ item",
+        });
+      }
+      seen.add(item.rfqItemId);
+    }
+  });
+
+export const createSupplierResponseSchema = z.object({
+  notes: z.string().max(2000).optional(),
+  items: supplierResponseItemsSchema,
+});
+export type CreateSupplierResponseInput = z.infer<typeof createSupplierResponseSchema>;
+
+export const updateSupplierResponseDraftSchema = z.object({
+  notes: z.string().max(2000).optional(),
+  items: supplierResponseItemsSchema.optional(),
+});
+export type UpdateSupplierResponseDraftInput = z.infer<typeof updateSupplierResponseDraftSchema>;

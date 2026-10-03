@@ -87,6 +87,15 @@ function OrganizationDetailContent() {
             <Link href={`/organizations/${organization.id}/orders`} className="btn-secondary w-full">
               Orders
             </Link>
+            <Link href={`/organizations/${organization.id}/requisitions`} className="btn-secondary w-full">
+              Requisitions
+            </Link>
+            <Link href={`/organizations/${organization.id}/rfqs`} className="btn-secondary w-full">
+              RFQs
+            </Link>
+            <Link href={`/organizations/${organization.id}/rfq-inbox`} className="btn-secondary w-full">
+              RFQ inbox
+            </Link>
             {(membershipRole === "OWNER" || membershipRole === "MANAGER") && (
               <>
                 <Link href={`/organizations/${organization.id}/onboarding`} className="btn-secondary w-full">

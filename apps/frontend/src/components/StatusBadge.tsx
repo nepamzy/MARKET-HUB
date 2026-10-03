@@ -21,6 +21,11 @@ const STYLES: Record<string, string> = {
   PROCESSING: "bg-info/10 text-info",
   COMPLETED: "bg-success/10 text-success",
   CANCELLED: "bg-danger/10 text-danger",
+  RFQ_CREATED: "bg-info/10 text-info",
+  ISSUED: "bg-info/10 text-info",
+  INVITED: "bg-muted/20 text-text-secondary",
+  RESPONDED: "bg-success/10 text-success",
+  WITHDRAWN: "bg-danger/10 text-danger",
 };
 
 /**

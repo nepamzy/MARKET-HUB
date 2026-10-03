@@ -157,6 +157,54 @@ enum OfferAvailability {
   DISCONTINUED
 }
 
+/// Requisition lifecycle (Phase 7 §8) — the smallest state machine that
+/// supports this phase's literal scope. CANCELLED is only reachable from
+/// DRAFT/SUBMITTED, never from RFQ_CREATED (Phase 7 §27: procurement records
+/// stay independent of each other's cleanup — cancelling a requisition after
+/// an RFQ already exists from it is not a transition this phase defines;
+/// the RFQ itself is the thing to act on at that point). Transitions are
+/// centralized in requisitions.service.ts, never a free-text status.
+enum RequisitionStatus {
+  DRAFT
+  SUBMITTED
+  RFQ_CREATED
+  CANCELLED
+}
+
+/// RFQ lifecycle (Phase 7 §9/§19) — deliberately only DRAFT -> ISSUED. The
+/// Phase 7 prompt's own required RFQ API list (§19) has no cancel/close
+/// verb at all (unlike Requisition's, which explicitly says "cancel/close
+/// where appropriate") — adding CLOSED/CANCELLED states with no endpoint to
+/// reach them would be exactly the "implies functionality that doesn't
+/// exist" §32 forbids. DRAFT is buyer-private (suppliers cannot see or
+/// access it); ISSUED is the point at which targeted suppliers gain
+/// visibility and may respond. See rfqs.service.ts for the full rationale.
+enum RfqStatus {
+  DRAFT
+  ISSUED
+}
+
+/// Per-supplier invitation state on an RFQ (Phase 7 §11). RESPONDED is set
+/// when that supplier's response is first SUBMITTED (never on a draft) —
+/// it is a buyer-visible signal, not the supplier's own response status.
+enum RfqSupplierTargetStatus {
+  INVITED
+  RESPONDED
+}
+
+/// Supplier response lifecycle (Phase 7 §14) — DRAFT is editable and
+/// supplier-private; SUBMITTED is immutable history (Phase 7 §14: "do not
+/// overwrite a supplier's historical submitted response"); WITHDRAWN is the
+/// only transition out of SUBMITTED, and is itself terminal. No negotiation/
+/// revision semantics exist yet (Phase 7 §15) — a withdrawn response is not
+/// editable or resubmittable; a supplier who changes their mind withdraws
+/// and would need a future phase's revision mechanism to offer again.
+enum SupplierResponseStatus {
+  DRAFT
+  SUBMITTED
+  WITHDRAWN
+}
+
 model User {
   id            String        @id @default(uuid())
   name          String
@@ -168,17 +216,20 @@ model User {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  memberships          OrganizationMembership[]
-  refreshTokens        RefreshToken[]
-  auditLogs            AuditLog[]                    @relation("ActorAuditLogs")
-  grantedPermissions   MembershipPermission[]
-  createdInviteLinks   OrganizationInviteLink[]
-  joinRequests         OrganizationJoinRequest[]      @relation("Requester")
-  reviewedJoinRequests OrganizationJoinRequest[]      @relation("Reviewer")
-  kycSubmissionsMade   KYCSubmission[]                @relation("KYCSubmitter")
-  kycReviews           KYCSubmission[]                @relation("KYCReviewer")
-  carts                Cart[]
-  ordersAsBuyer        Order[]
+  memberships                OrganizationMembership[]
+  refreshTokens              RefreshToken[]
+  auditLogs                  AuditLog[]                @relation("ActorAuditLogs")
+  grantedPermissions         MembershipPermission[]
+  createdInviteLinks         OrganizationInviteLink[]
+  joinRequests               OrganizationJoinRequest[] @relation("Requester")
+  reviewedJoinRequests       OrganizationJoinRequest[] @relation("Reviewer")
+  kycSubmissionsMade         KYCSubmission[]           @relation("KYCSubmitter")
+  kycReviews                 KYCSubmission[]           @relation("KYCReviewer")
+  carts                      Cart[]
+  ordersAsBuyer              Order[]
+  requisitionsRequested      Requisition[]
+  rfqsCreated                Rfq[]
+  supplierResponsesSubmitted SupplierResponse[]
 
   @@map("users")
 }
@@ -202,11 +253,11 @@ model RefreshToken {
 }
 
 model Organization {
-  id                 String              @id @default(uuid())
+  id                 String             @id @default(uuid())
   legalName          String
   businessType       BusinessType
-  status             OrganizationStatus  @default(ACTIVE)
-  verificationStatus VerificationStatus  @default(PENDING)
+  status             OrganizationStatus @default(ACTIVE)
+  verificationStatus VerificationStatus @default(PENDING)
 
   // Business profile (Phase 2). All nullable — a business exists and can
   // operate at a basic level before completing these; onboarding-status
@@ -223,17 +274,21 @@ model Organization {
   description        String?
   registrationNumber String?
 
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  memberships  OrganizationMembership[]
-  auditLogs    AuditLog[]                @relation("OrganizationAuditLogs")
-  inviteLinks  OrganizationInviteLink[]
-  joinRequests OrganizationJoinRequest[]
-  kycSubmission KYCSubmission?
-  supplierProfile SupplierProfile?
-  products      Product[]
-  ordersAsSeller Order[]
+  memberships         OrganizationMembership[]
+  auditLogs           AuditLog[]                @relation("OrganizationAuditLogs")
+  inviteLinks         OrganizationInviteLink[]
+  joinRequests        OrganizationJoinRequest[]
+  kycSubmission       KYCSubmission?
+  supplierProfile     SupplierProfile?
+  products            Product[]
+  ordersAsSeller      Order[]
+  requisitionsAsBuyer Requisition[]
+  rfqsAsBuyer         Rfq[]
+  rfqSupplierTargets  RfqSupplierTarget[]
+  supplierResponses   SupplierResponse[]
 
   @@index([businessType])
   @@map("organizations")
@@ -290,7 +345,7 @@ model Category {
   children  Category[] @relation("CategoryHierarchy")
   createdAt DateTime   @default(now())
 
-  products  Product[]
+  products Product[]
 
   @@index([parentId])
   @@map("categories")
@@ -308,28 +363,30 @@ model Category {
 /// terminal state a product moves to instead, so future Order/RFQ line
 /// items (Phase 5+) can still reference a real row.
 model Product {
-  id                  String        @id @default(uuid())
-  organizationId      String
-  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name                String
-  description         String?
-  sku                 String?
-  categoryId          String?
-  category            Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  brand               String?
-  unit                ProductUnit   @default(PIECE)
-  status              ProductStatus @default(DRAFT)
-  isDiscoverable      Boolean       @default(false)
+  id                   String        @id @default(uuid())
+  organizationId       String
+  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                 String
+  description          String?
+  sku                  String?
+  categoryId           String?
+  category             Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brand                String?
+  unit                 ProductUnit   @default(PIECE)
+  status               ProductStatus @default(DRAFT)
+  isDiscoverable       Boolean       @default(false)
   minimumOrderQuantity Int?
-  primaryImageUrl     String?
-  additionalImageUrls String[]
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  primaryImageUrl      String?
+  additionalImageUrls  String[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
-  prices              ProductPrice[]
-  commercialOffer     CommercialOffer?
-  cartItems           CartItem[]
-  orderItems          OrderItem[]
+  prices           ProductPrice[]
+  commercialOffer  CommercialOffer?
+  cartItems        CartItem[]
+  orderItems       OrderItem[]
+  requisitionItems RequisitionItem[]
+  rfqItems         RfqItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -413,19 +470,19 @@ model CommercialOffer {
 /// needs to hold current state). Resubmission after REJECTED or
 /// NEEDS_INFORMATION updates this same row rather than creating a new one.
 model KYCSubmission {
-  id                String    @id @default(uuid())
-  organizationId    String    @unique
+  id                String       @id @default(uuid())
+  organizationId    String       @unique
   organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  status            KYCStatus @default(DRAFT)
+  status            KYCStatus    @default(DRAFT)
   submittedByUserId String?
-  submittedBy       User?     @relation("KYCSubmitter", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  submittedBy       User?        @relation("KYCSubmitter", fields: [submittedByUserId], references: [id], onDelete: SetNull)
   submittedAt       DateTime?
   reviewedByUserId  String?
-  reviewedBy        User?     @relation("KYCReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedBy        User?        @relation("KYCReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   reviewedAt        DateTime?
   reviewNote        String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   @@map("kyc_submissions")
 }
@@ -456,14 +513,14 @@ model OrganizationMembership {
 /// memberships never have rows here — ownership is never a partial or
 /// overridable access level, enforced in the service layer, not the schema.
 model MembershipPermission {
-  id              String                  @id @default(uuid())
+  id              String                 @id @default(uuid())
   membershipId    String
-  membership      OrganizationMembership  @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  membership      OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
   resource        PermissionResource
   level           PermissionLevel
   grantedByUserId String
-  grantedBy       User                    @relation(fields: [grantedByUserId], references: [id], onDelete: Restrict)
-  updatedAt       DateTime                @updatedAt
+  grantedBy       User                   @relation(fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  updatedAt       DateTime               @updatedAt
 
   @@unique([membershipId, resource])
   @@index([membershipId])
@@ -488,21 +545,21 @@ model MembershipPermission {
 ///     APPROVED in the same transaction, so both paths share one audit
 ///     trail and one "how did this member get here" query.
 model OrganizationInviteLink {
-  id              String    @id @default(uuid())
+  id              String         @id @default(uuid())
   organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tokenHash       String    @unique
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tokenHash       String         @unique
   inviteeEmail    String?
   role            MembershipRole @default(STAFF)
   createdByUserId String
-  createdBy       User      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdBy       User           @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
   expiresAt       DateTime
   maxUses         Int?
-  useCount        Int       @default(0)
+  useCount        Int            @default(0)
   revokedAt       DateTime?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime       @default(now())
 
-  joinRequests    OrganizationJoinRequest[]
+  joinRequests OrganizationJoinRequest[]
 
   @@index([organizationId])
   @@map("organization_invite_links")
@@ -516,18 +573,18 @@ model OrganizationInviteLink {
 /// effect of the APPROVED transition, performed server-side in the same
 /// transaction, never inferred from this row's status by any other code path.
 model OrganizationJoinRequest {
-  id               String            @id @default(uuid())
+  id               String                  @id @default(uuid())
   organizationId   String
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId           String
-  user             User              @relation("Requester", fields: [userId], references: [id], onDelete: Cascade)
+  user             User                    @relation("Requester", fields: [userId], references: [id], onDelete: Cascade)
   inviteLinkId     String?
   inviteLink       OrganizationInviteLink? @relation(fields: [inviteLinkId], references: [id], onDelete: SetNull)
-  status           JoinRequestStatus @default(PENDING)
+  status           JoinRequestStatus       @default(PENDING)
   reviewedByUserId String?
-  reviewedBy       User?             @relation("Reviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedBy       User?                   @relation("Reviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   reviewedAt       DateTime?
-  createdAt        DateTime          @default(now())
+  createdAt        DateTime                @default(now())
 
   @@index([organizationId, status])
   @@index([userId])
@@ -602,12 +659,12 @@ enum OrderStatus {
 /// deliberately not a full client-supplied-idempotency-key system — see
 /// cart.service.ts for the documented limitation.
 model Cart {
-  id           String     @id @default(uuid())
+  id           String    @id @default(uuid())
   buyerUserId  String
-  buyerUser    User       @relation(fields: [buyerUserId], references: [id], onDelete: Cascade)
+  buyerUser    User      @relation(fields: [buyerUserId], references: [id], onDelete: Cascade)
   checkedOutAt DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   items CartItem[]
 
@@ -704,4 +761,208 @@ model OrderItem {
 
   @@index([orderId])
   @@map("order_items")
+}
+
+// ---------------------------------------------------------------------
+// Phase 7 — Procurement Engine: Requisition & RFQ Foundation
+//
+// A second, deliberately separate commercial path alongside Phase 6's
+// Discover -> Cart -> Checkout -> Order (Phase 7 §6). A Requisition or RFQ
+// never creates an Order, and a SupplierResponse never creates a Payment —
+// this phase covers only Need -> Requisition -> RFQ -> Supplier Response.
+// Comparison, negotiation, award, and purchase orders are explicitly later
+// phases and introduce no schema here.
+// ---------------------------------------------------------------------
+
+/// A buyer organization's internal procurement need (Phase 7 §7).
+/// sequenceNumber exists only to generate a stable human-facing reference
+/// ("REQ-000123" — see requisitions.service.ts) without a second string
+/// column to keep in sync; it is never exposed as the primary key.
+/// Deliberately never hard-deleted (Phase 7 §8: "must remain historically
+/// visible after submission") — CANCELLED is the terminal state instead,
+/// mirroring Product's ARCHIVED/no-hard-delete pattern.
+model Requisition {
+  id                  String            @id @default(uuid())
+  sequenceNumber      Int               @unique @default(autoincrement())
+  buyerOrganizationId String
+  buyerOrganization   Organization      @relation(fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  requestedByUserId   String
+  requestedByUser     User              @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  title               String
+  status              RequisitionStatus @default(DRAFT)
+  submittedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  items RequisitionItem[]
+  rfqs  Rfq[]
+
+  @@index([buyerOrganizationId])
+  @@index([status])
+  @@map("requisitions")
+}
+
+/// One requested line within a Requisition (Phase 7 §7). productId is
+/// deliberately nullable — "a requisition must be able to represent a
+/// product that is NOT already in the MarketBuzz catalogue" (§7) — so
+/// itemName/unit/quantity are always the authoritative requested values,
+/// never read only through the Product relation. onDelete: SetNull on
+/// productId (not Restrict) because this row's own fields already carry
+/// everything needed to preserve history; losing the catalogue link, if a
+/// product were ever removed, would not lose any procurement information.
+model RequisitionItem {
+  id            String      @id @default(uuid())
+  requisitionId String
+  requisition   Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  productId     String?
+  product       Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  itemName      String
+  quantity      Int
+  unit          ProductUnit
+  specification String?
+  createdAt     DateTime    @default(now())
+
+  rfqItems RfqItem[]
+
+  @@index([requisitionId])
+  @@map("requisition_items")
+}
+
+/// A buyer's request for supplier quotations, always created from exactly
+/// one Requisition (Phase 7 §9) — requisitionId is a real FK with
+/// onDelete: Restrict, never orphaned (Phase 7 §20: "do not create...RFQs
+/// without valid requisition ownership"). See RfqStatus's doc comment in
+/// the enum section for why there is no CLOSED/CANCELLED state this phase.
+model Rfq {
+  id                  String       @id @default(uuid())
+  sequenceNumber      Int          @unique @default(autoincrement())
+  buyerOrganizationId String
+  buyerOrganization   Organization @relation(fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  requisitionId       String
+  requisition         Requisition  @relation(fields: [requisitionId], references: [id], onDelete: Restrict)
+  createdByUserId     String
+  createdByUser       User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  title               String
+  description         String?
+  status              RfqStatus    @default(DRAFT)
+  responseDeadline    DateTime?
+  issuedAt            DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  items     RfqItem[]
+  targets   RfqSupplierTarget[]
+  responses SupplierResponse[]
+
+  @@index([buyerOrganizationId])
+  @@index([requisitionId])
+  @@index([status])
+  @@map("rfqs")
+}
+
+/// One requested line within an RFQ (Phase 7 §10) — a snapshot COPY of a
+/// RequisitionItem at RFQ-creation time, never a live reference a later
+/// requisition edit could change. requisitionItemId is kept as a loose
+/// provenance pointer (SetNull — the RFQ item's own fields are already the
+/// complete, authoritative requirement) purely so the UI can show "copied
+/// from requisition line X"; it is never read from at request time. There
+/// is deliberately no update endpoint for this model anywhere in the
+/// service layer — "the original RFQ requirement must remain immutable
+/// after issuance" (§10) is satisfied by never exposing a mutation path at
+/// all, which also makes it trivially true before issuance too.
+model RfqItem {
+  id                String           @id @default(uuid())
+  rfqId             String
+  rfq               Rfq              @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  requisitionItemId String?
+  requisitionItem   RequisitionItem? @relation(fields: [requisitionItemId], references: [id], onDelete: SetNull)
+  productId         String?
+  product           Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  itemName          String
+  specification     String?
+  quantity          Int
+  unit              ProductUnit
+  createdAt         DateTime         @default(now())
+
+  responseItems SupplierResponseItem[]
+
+  @@index([rfqId])
+  @@map("rfq_items")
+}
+
+/// Which supplier organizations an RFQ was sent to (Phase 7 §11) — the
+/// buyer-controlled invitation list. Reuses the existing Organization/
+/// SupplierProfile foundation for supplier identity; this table only adds
+/// the per-(RFQ, supplier) invitation relationship itself, never a second
+/// supplier model. onDelete: Restrict on supplierOrganizationId — an
+/// invitation must always resolve to a real organization, never orphaned.
+model RfqSupplierTarget {
+  id                     String                  @id @default(uuid())
+  rfqId                  String
+  rfq                    Rfq                     @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplierOrganizationId String
+  supplierOrganization   Organization            @relation(fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  status                 RfqSupplierTargetStatus @default(INVITED)
+  invitedAt              DateTime                @default(now())
+  respondedAt            DateTime?
+
+  @@unique([rfqId, supplierOrganizationId])
+  @@index([supplierOrganizationId])
+  @@map("rfq_supplier_targets")
+}
+
+/// A targeted supplier's response to one RFQ (Phase 7 §12). One row per
+/// (rfq, supplier) — not a history table — because this phase has no
+/// revision semantics (§14/§15): a DRAFT is edited in place until SUBMITTED,
+/// at which point it becomes read-only except for the WITHDRAWN transition.
+/// rfqId/supplierOrganizationId use onDelete: Restrict — a response must
+/// always remain attributable to a real RFQ and a real organization.
+model SupplierResponse {
+  id                     String                 @id @default(uuid())
+  rfqId                  String
+  rfq                    Rfq                    @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  supplierOrganizationId String
+  supplierOrganization   Organization           @relation(fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  submittedByUserId      String?
+  submittedByUser        User?                  @relation(fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  status                 SupplierResponseStatus @default(DRAFT)
+  notes                  String?
+  submittedAt            DateTime?
+  withdrawnAt            DateTime?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  items SupplierResponseItem[]
+
+  @@unique([rfqId, supplierOrganizationId])
+  @@index([supplierOrganizationId])
+  @@map("supplier_responses")
+}
+
+/// One offered line within a SupplierResponse (Phase 7 §12/§13), mapped to
+/// exactly one RfqItem (never a client-supplied arbitrary line — Phase 7
+/// §24: "response item maps to valid RFQ item"). unitPriceMinor/currency
+/// follow the Phase 6 integer-minor-unit convention exactly — see
+/// schema.prisma's ProductPrice doc comment for why this is never a
+/// Decimal/float. rfqItemId uses onDelete: Restrict: an offered line must
+/// always remain attributable to a real requested line.
+model SupplierResponseItem {
+  id             String           @id @default(uuid())
+  responseId     String
+  response       SupplierResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  rfqItemId      String
+  rfqItem        RfqItem          @relation(fields: [rfqItemId], references: [id], onDelete: Restrict)
+  quantity       Int
+  unit           ProductUnit
+  unitPriceMinor Int
+  currency       String
+  leadTimeDays   Int?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([responseId, rfqItemId])
+  @@map("supplier_response_items")
 }

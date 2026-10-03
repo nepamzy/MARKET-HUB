@@ -170,3 +170,31 @@ export type OfferAvailability = (typeof OFFER_AVAILABILITIES)[number];
  */
 export const ORDER_STATUSES = ["PENDING", "CONFIRMED", "PROCESSING", "COMPLETED", "CANCELLED"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+/**
+ * Procurement requisition lifecycle (Phase 7) — see schema.prisma's
+ * RequisitionStatus doc comment for why CANCELLED is only reachable from
+ * DRAFT/SUBMITTED. Transitions are centralized in requisitions.service.ts.
+ */
+export const REQUISITION_STATUSES = ["DRAFT", "SUBMITTED", "RFQ_CREATED", "CANCELLED"] as const;
+export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
+
+/**
+ * RFQ lifecycle (Phase 7) — deliberately only DRAFT -> ISSUED this phase;
+ * see schema.prisma's RfqStatus doc comment for why there is no
+ * CLOSED/CANCELLED state yet.
+ */
+export const RFQ_STATUSES = ["DRAFT", "ISSUED"] as const;
+export type RfqStatus = (typeof RFQ_STATUSES)[number];
+
+/** Per-supplier invitation state on an RFQ (Phase 7). */
+export const RFQ_SUPPLIER_TARGET_STATUSES = ["INVITED", "RESPONDED"] as const;
+export type RfqSupplierTargetStatus = (typeof RFQ_SUPPLIER_TARGET_STATUSES)[number];
+
+/**
+ * Supplier response lifecycle (Phase 7) — see schema.prisma's
+ * SupplierResponseStatus doc comment for why WITHDRAWN is terminal (no
+ * negotiation/revision semantics exist yet).
+ */
+export const SUPPLIER_RESPONSE_STATUSES = ["DRAFT", "SUBMITTED", "WITHDRAWN"] as const;
+export type SupplierResponseStatus = (typeof SUPPLIER_RESPONSE_STATUSES)[number];

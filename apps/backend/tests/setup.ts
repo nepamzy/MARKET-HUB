@@ -22,6 +22,17 @@ async function resetDatabase(): Promise<void> {
     prisma.order.deleteMany(),
     prisma.cartItem.deleteMany(),
     prisma.cart.deleteMany(),
+    // Phase 7 procurement tables — same reasoning: Requisition/Rfq/
+    // SupplierResponse all use onDelete:Restrict on their Organization/User
+    // relations, so they must be cleared explicitly before Organization/
+    // User, children before parents.
+    prisma.supplierResponseItem.deleteMany(),
+    prisma.supplierResponse.deleteMany(),
+    prisma.rfqSupplierTarget.deleteMany(),
+    prisma.rfqItem.deleteMany(),
+    prisma.rfq.deleteMany(),
+    prisma.requisitionItem.deleteMany(),
+    prisma.requisition.deleteMany(),
     prisma.organization.deleteMany(),
     prisma.user.deleteMany(),
   ]);
