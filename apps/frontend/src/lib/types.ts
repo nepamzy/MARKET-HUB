@@ -286,6 +286,7 @@ export interface OrderItemView {
 export interface OrderView {
   id: string;
   buyerUserId: string;
+  buyerUser: { id: string; name: string; email: string };
   sellerOrganizationId: string;
   sellerOrganization: { id: string; legalName: string };
   status: OrderStatusValue;

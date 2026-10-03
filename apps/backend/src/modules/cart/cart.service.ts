@@ -64,12 +64,26 @@ export async function getCartView(buyerUserId: string) {
           lineTotalMinor: terms.lineTotalMinor,
         };
       } catch (err) {
+        // Still resolve a display name/seller even when the item is
+        // invalid — Phase 4 never hard-deletes products (ARCHIVED is the
+        // terminal state instead), so this lookup almost always succeeds
+        // regardless of why resolvePurchaseTerms rejected it. Without this,
+        // the frontend has no way to tell the buyer WHICH item needs
+        // attention, only that something does.
+        const fallback = await prisma.product.findUnique({
+          where: { id: item.productId },
+          select: { name: true, unit: true, organization: { select: { id: true, legalName: true } } },
+        });
         return {
           id: item.id,
           productId: item.productId,
           quantity: item.quantity,
           valid: false,
           invalidReason: err instanceof AppError ? err.message : "This item is no longer available",
+          productName: fallback?.name,
+          unit: fallback?.unit,
+          sellerOrganizationId: fallback?.organization.id,
+          sellerOrganizationName: fallback?.organization.legalName,
         };
       }
     })

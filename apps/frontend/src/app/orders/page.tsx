@@ -41,9 +41,10 @@ function OrdersContent() {
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-text-secondary">
+                <th className="px-4 py-3 font-medium">Order</th>
                 <th className="px-4 py-3 font-medium">Seller</th>
                 <th className="px-4 py-3 font-medium">Items</th>
-                <th className="px-4 py-3 font-medium">Total</th>
+                <th className="px-4 py-3 font-medium text-right">Total</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Placed</th>
               </tr>
@@ -53,11 +54,14 @@ function OrdersContent() {
                 <tr key={order.id} className="hover:bg-background">
                   <td className="px-4 py-3">
                     <Link href={`/orders/${order.id}`} className="font-medium text-text-primary hover:text-green-dark">
-                      {order.sellerOrganization.legalName}
+                      {order.id.slice(0, 8)}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-text-secondary">{order.totalQuantity}</td>
-                  <td className="px-4 py-3 text-text-secondary">{formatMinorUnits(order.totalMinor, order.currency)}</td>
+                  <td className="px-4 py-3 text-text-secondary">{order.sellerOrganization.legalName}</td>
+                  <td className="px-4 py-3 text-text-secondary">
+                    {order.totalQuantity} item{order.totalQuantity === 1 ? "" : "s"}
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-navy">{formatMinorUnits(order.totalMinor, order.currency)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={order.status} />
                   </td>

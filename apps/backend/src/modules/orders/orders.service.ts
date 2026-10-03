@@ -9,6 +9,13 @@ import type { MembershipRole } from "@market-hub/shared";
 const ORDER_SELECT = {
   id: true,
   buyerUserId: true,
+  // Phase 6 frontend pass: the seller side previously had no way to know
+  // who placed an order — only the opaque buyerUserId. Selecting the
+  // existing buyerUser relation (no schema/migration change, already a
+  // real FK) is the minimal fix; a real seller workspace cannot omit who
+  // the customer is. Harmless for the buyer to see their own name/email
+  // echoed back.
+  buyerUser: { select: { id: true, name: true, email: true } },
   sellerOrganizationId: true,
   sellerOrganization: { select: { id: true, legalName: true } },
   status: true,

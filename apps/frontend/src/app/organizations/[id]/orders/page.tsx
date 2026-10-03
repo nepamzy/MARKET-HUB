@@ -38,12 +38,13 @@ function OrganizationOrdersContent() {
 
       {orders && orders.length > 0 && (
         <div className="mt-6 overflow-x-auto rounded-card border border-border bg-surface">
-          <table className="w-full min-w-[520px] text-sm">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-text-secondary">
                 <th className="px-4 py-3 font-medium">Order</th>
+                <th className="px-4 py-3 font-medium">Buyer</th>
                 <th className="px-4 py-3 font-medium">Items</th>
-                <th className="px-4 py-3 font-medium">Total</th>
+                <th className="px-4 py-3 font-medium text-right">Total</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Placed</th>
               </tr>
@@ -56,8 +57,11 @@ function OrganizationOrdersContent() {
                       {order.id.slice(0, 8)}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-text-secondary">{order.totalQuantity}</td>
-                  <td className="px-4 py-3 text-text-secondary">{formatMinorUnits(order.totalMinor, order.currency)}</td>
+                  <td className="px-4 py-3 text-text-secondary">{order.buyerUser.name}</td>
+                  <td className="px-4 py-3 text-text-secondary">
+                    {order.totalQuantity} item{order.totalQuantity === 1 ? "" : "s"}
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-navy">{formatMinorUnits(order.totalMinor, order.currency)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={order.status} />
                   </td>
