@@ -1,9 +1,18 @@
 import { Router } from "express";
-import { addRfqSupplierTargetsSchema, createRfqSchema, rfqListQuerySchema } from "@market-hub/shared";
+import { addRfqSupplierTargetsSchema, awardRfqSchema, createRfqSchema, rfqListQuerySchema } from "@market-hub/shared";
 import { requireAuth } from "../../middleware/auth";
 import { requireOrganizationMembership } from "../../middleware/organizationAuth";
 import { validate } from "../../middleware/validate";
-import { addRfqSupplierTargets, createRfq, getRfqForViewer, issueRfq, listBuyerRfqs, listRfqInbox } from "./rfqs.service";
+import {
+  addRfqSupplierTargets,
+  awardRfq,
+  createRfq,
+  getRfqComparison,
+  getRfqForViewer,
+  issueRfq,
+  listBuyerRfqs,
+  listRfqInbox,
+} from "./rfqs.service";
 
 /**
  * Mounted at /api/organizations — buyer-side RFQ management, same
@@ -70,6 +79,40 @@ organizationRfqsRouter.post(
         req.body.supplierOrganizationIds
       );
       res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Buyer-side comparison (Phase 8 §2) and award (Phase 8 §5) — same
+ * router/scoping as the rest of this file. Comparison is a read (STAFF+);
+ * award commits the organization to a decision (MANAGER+), same bar as
+ * issuing or inviting.
+ */
+organizationRfqsRouter.get(
+  "/:organizationId/rfqs/:rfqId/comparison",
+  requireAuth,
+  requireOrganizationMembership("STAFF"),
+  async (req, res, next) => {
+    try {
+      res.status(200).json(await getRfqComparison(req.params.organizationId, req.params.rfqId));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+organizationRfqsRouter.post(
+  "/:organizationId/rfqs/:rfqId/award",
+  requireAuth,
+  requireOrganizationMembership("MANAGER"),
+  validate(awardRfqSchema),
+  async (req, res, next) => {
+    try {
+      const result = await awardRfq(req.params.organizationId, req.params.rfqId, req.user!.id, req.body);
+      res.status(201).json(result);
     } catch (err) {
       next(err);
     }

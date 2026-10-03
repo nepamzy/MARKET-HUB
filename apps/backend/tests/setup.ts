@@ -22,6 +22,16 @@ async function resetDatabase(): Promise<void> {
     prisma.order.deleteMany(),
     prisma.cartItem.deleteMany(),
     prisma.cart.deleteMany(),
+    // Phase 8 procurement tables — Negotiation/Award both use
+    // onDelete:Restrict on their Rfq/SupplierResponse/Organization
+    // relations, so they must be cleared before Rfq/SupplierResponse
+    // (which Phase 7's own tables below also still need, in the same
+    // order as before). NegotiationEventItem similarly must precede
+    // RfqItem (onDelete:Restrict on rfqItemId).
+    prisma.negotiationEventItem.deleteMany(),
+    prisma.negotiationEvent.deleteMany(),
+    prisma.negotiation.deleteMany(),
+    prisma.award.deleteMany(),
     // Phase 7 procurement tables — same reasoning: Requisition/Rfq/
     // SupplierResponse all use onDelete:Restrict on their Organization/User
     // relations, so they must be cleared explicitly before Organization/

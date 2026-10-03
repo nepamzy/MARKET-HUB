@@ -91,3 +91,33 @@ export async function createIssuedRfq(
 
   return { rfqId, items: issueRes.body.items as Array<{ id: string }> };
 }
+
+/** Creates and submits a supplier response for an ISSUED RFQ — most
+ * Phase 8 comparison/negotiation/award tests need a SUBMITTED response as
+ * their starting point. */
+export async function createSubmittedResponse(
+  app: Express,
+  supplierToken: string,
+  supplierOrganizationId: string,
+  rfqId: string,
+  rfqItemId: string,
+  unitPriceMinor = 150000
+) {
+  const createRes = await request(app)
+    .post(`/api/organizations/${supplierOrganizationId}/rfqs/${rfqId}/response`)
+    .set("Authorization", `Bearer ${supplierToken}`)
+    .send({ items: [{ rfqItemId, quantity: 100, unit: "PIECE", unitPriceMinor, currency: "NGN" }] });
+  if (createRes.status !== 201) {
+    throw new Error(`Response creation failed in test helper: ${createRes.status} ${JSON.stringify(createRes.body)}`);
+  }
+  const responseId = createRes.body.id as string;
+
+  const submitRes = await request(app)
+    .post(`/api/organizations/${supplierOrganizationId}/rfqs/${rfqId}/response/submit`)
+    .set("Authorization", `Bearer ${supplierToken}`);
+  if (submitRes.status !== 200) {
+    throw new Error(`Response submission failed in test helper: ${submitRes.status} ${JSON.stringify(submitRes.body)}`);
+  }
+
+  return { responseId };
+}

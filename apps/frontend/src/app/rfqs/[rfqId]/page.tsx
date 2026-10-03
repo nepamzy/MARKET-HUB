@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -158,8 +159,25 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
         </div>
       </section>
 
+      {rfq.award && (
+        <section className="card mt-6 border-success/30 bg-success/5">
+          <h2 className="text-sm font-semibold text-success">Awarded</h2>
+          <p className="mt-1 text-sm text-text-primary">
+            This RFQ was awarded to {rfq.award.supplierOrganization.legalName}.
+          </p>
+          {rfq.award.reason && <p className="mt-1 text-sm text-text-secondary">Reason: {rfq.award.reason}</p>}
+        </section>
+      )}
+
       <section className="card mt-6">
-        <h2 className="text-lg font-semibold text-text-primary">Supplier responses</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">Supplier responses</h2>
+          {rfq.responses && rfq.responses.length > 0 && (
+            <Link href={`/organizations/${rfq.buyerOrganizationId}/rfqs/${rfq.id}/comparison`} className="btn-secondary">
+              Compare responses
+            </Link>
+          )}
+        </div>
         {(!rfq.responses || rfq.responses.length === 0) && (
           <p className="mt-2 text-sm text-text-secondary">No responses submitted yet.</p>
         )}
@@ -281,88 +299,115 @@ function SupplierView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise
   }
 
   return (
-    <section className="card mt-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text-primary">Your response</h2>
-        {rfq.response && <StatusBadge status={rfq.response.status} />}
-      </div>
-
-      {actionError && (
-        <div className="mt-4">
-          <FormAlert>{actionError}</FormAlert>
-        </div>
+    <>
+      {rfq.youWereAwarded != null && (
+        <section className={`card mt-6 ${rfq.youWereAwarded ? "border-success/30 bg-success/5" : ""}`}>
+          <h2 className={`text-sm font-semibold ${rfq.youWereAwarded ? "text-success" : "text-text-primary"}`}>
+            {rfq.youWereAwarded ? "You were awarded this RFQ" : "This RFQ has been awarded"}
+          </h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            {rfq.youWereAwarded
+              ? "The buyer selected your response. Further commercial steps will follow in a later phase."
+              : "The buyer selected another supplier's response for this RFQ."}
+          </p>
+        </section>
       )}
 
-      <div className="mt-4 space-y-3">
-        {items.map((item) => (
-          <div key={item.rfqItemId} className="grid grid-cols-1 gap-2 rounded-control border border-border p-3 sm:grid-cols-12">
-            <p className="flex items-center text-sm font-medium text-text-primary sm:col-span-3">{item.itemName}</p>
-            <input
-              type="number"
-              min={1}
-              disabled={!isEditable}
-              className="field-input sm:col-span-2"
-              value={item.quantity}
-              onChange={(e) => updateItem(item.rfqItemId, { quantity: Number(e.target.value) })}
-            />
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              disabled={!isEditable}
-              placeholder="Unit price"
-              className="field-input sm:col-span-2"
-              value={item.unitPriceMinor}
-              onChange={(e) => updateItem(item.rfqItemId, { unitPriceMinor: e.target.value })}
-            />
-            <input
-              disabled={!isEditable}
-              placeholder="NGN"
-              className="field-input sm:col-span-2"
-              value={item.currency}
-              onChange={(e) => updateItem(item.rfqItemId, { currency: e.target.value.toUpperCase() })}
-            />
-            <input
-              type="number"
-              min={0}
-              disabled={!isEditable}
-              placeholder="Lead days"
-              className="field-input sm:col-span-3"
-              value={item.leadTimeDays}
-              onChange={(e) => updateItem(item.rfqItemId, { leadTimeDays: e.target.value })}
-            />
+      {rfq.negotiation && (
+        <section className="card mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-text-primary">Negotiation</h2>
+            <StatusBadge status={rfq.negotiation.status} />
           </div>
-        ))}
-      </div>
+          <Link href={`/negotiations/${rfq.negotiation.id}`} className="btn-secondary mt-3 inline-flex">
+            {rfq.negotiation.status === "OPEN" ? "View and respond" : "View negotiation"}
+          </Link>
+        </section>
+      )}
 
-      <textarea
-        disabled={!isEditable}
-        placeholder="Notes to the buyer (optional)"
-        className="field-input mt-3"
-        rows={2}
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-      />
+      <section className="card mt-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-text-primary">Your response</h2>
+          {rfq.response && <StatusBadge status={rfq.response.status} />}
+        </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {isEditable && (
-          <button type="button" disabled={busy} onClick={saveDraft} className="btn-secondary">
-            {hasResponse ? "Save changes" : "Save draft"}
-          </button>
+        {actionError && (
+          <div className="mt-4">
+            <FormAlert>{actionError}</FormAlert>
+          </div>
         )}
-        {isDraft && (
-          <button type="button" disabled={busy} onClick={submit} className="btn-primary">
-            Submit response
-          </button>
-        )}
-        {rfq.response?.status === "SUBMITTED" && (
-          <button type="button" disabled={busy} onClick={withdraw} className="btn-destructive">
-            Withdraw response
-          </button>
-        )}
-        {rfq.response?.status === "WITHDRAWN" && <p className="text-sm text-text-secondary">This response has been withdrawn.</p>}
-      </div>
-    </section>
+
+        <div className="mt-4 space-y-3">
+          {items.map((item) => (
+            <div key={item.rfqItemId} className="grid grid-cols-1 gap-2 rounded-control border border-border p-3 sm:grid-cols-12">
+              <p className="flex items-center text-sm font-medium text-text-primary sm:col-span-3">{item.itemName}</p>
+              <input
+                type="number"
+                min={1}
+                disabled={!isEditable}
+                className="field-input sm:col-span-2"
+                value={item.quantity}
+                onChange={(e) => updateItem(item.rfqItemId, { quantity: Number(e.target.value) })}
+              />
+              <input
+                type="number"
+                step="0.01"
+                min={0}
+                disabled={!isEditable}
+                placeholder="Unit price"
+                className="field-input sm:col-span-2"
+                value={item.unitPriceMinor}
+                onChange={(e) => updateItem(item.rfqItemId, { unitPriceMinor: e.target.value })}
+              />
+              <input
+                disabled={!isEditable}
+                placeholder="NGN"
+                className="field-input sm:col-span-2"
+                value={item.currency}
+                onChange={(e) => updateItem(item.rfqItemId, { currency: e.target.value.toUpperCase() })}
+              />
+              <input
+                type="number"
+                min={0}
+                disabled={!isEditable}
+                placeholder="Lead days"
+                className="field-input sm:col-span-3"
+                value={item.leadTimeDays}
+                onChange={(e) => updateItem(item.rfqItemId, { leadTimeDays: e.target.value })}
+              />
+            </div>
+          ))}
+        </div>
+
+        <textarea
+          disabled={!isEditable}
+          placeholder="Notes to the buyer (optional)"
+          className="field-input mt-3"
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {isEditable && (
+            <button type="button" disabled={busy} onClick={saveDraft} className="btn-secondary">
+              {hasResponse ? "Save changes" : "Save draft"}
+            </button>
+          )}
+          {isDraft && (
+            <button type="button" disabled={busy} onClick={submit} className="btn-primary">
+              Submit response
+            </button>
+          )}
+          {rfq.response?.status === "SUBMITTED" && (
+            <button type="button" disabled={busy} onClick={withdraw} className="btn-destructive">
+              Withdraw response
+            </button>
+          )}
+          {rfq.response?.status === "WITHDRAWN" && <p className="text-sm text-text-secondary">This response has been withdrawn.</p>}
+        </div>
+      </section>
+    </>
   );
 }
 

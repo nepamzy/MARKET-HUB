@@ -1,4 +1,4 @@
-import type { CreateRfqInput, MembershipRole, RfqListQuery } from "@market-hub/shared";
+import type { AwardRfqInput, CreateRfqInput, MembershipRole, RfqListQuery, RfqStatus } from "@market-hub/shared";
 import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
@@ -24,6 +24,21 @@ const RESPONSE_ITEM_SELECT = {
   currency: true,
   leadTimeDays: true,
   notes: true,
+} as const;
+
+// Award is buyer-visible in full (it's the buyer's own decision); a
+// losing supplier never sees who won through this select — see
+// getRfqForViewer's supplier branch, which instead computes a plain
+// boolean against its own response only (Phase 8 §7: never leak
+// competitive information the existing Phase 7 privacy model wouldn't).
+const AWARD_SELECT = {
+  id: true,
+  responseId: true,
+  supplierOrganizationId: true,
+  supplierOrganization: { select: { id: true, legalName: true } },
+  awardedByUserId: true,
+  reason: true,
+  createdAt: true,
 } as const;
 
 // Full detail for the buyer: every target (so the buyer can see who hasn't
@@ -67,6 +82,7 @@ const RFQ_BUYER_SELECT = {
       items: { select: RESPONSE_ITEM_SELECT },
     },
   },
+  award: { select: AWARD_SELECT },
 } as const;
 
 // What a targeted supplier may see: the RFQ's own content, never any other
@@ -107,13 +123,29 @@ function withRfqReference<T extends { sequenceNumber: number }>(rfq: T) {
   return { ...rfq, reference: formatRfqReference(rfq.sequenceNumber) };
 }
 
-async function getMembershipRole(organizationId: string, userId: string): Promise<MembershipRole | null> {
+// Exported for negotiations.service.ts, which needs the identical
+// (organizationId, userId) -> role lookup for its own buyer/supplier side
+// resolution — reused rather than duplicated.
+export async function getMembershipRole(organizationId: string, userId: string): Promise<MembershipRole | null> {
   const membership = await prisma.organizationMembership.findUnique({
     where: { organizationId_userId: { organizationId, userId } },
     select: { role: true },
   });
   return membership?.role ?? null;
 }
+
+/**
+ * Centralized, explicit transition table (Phase 8 §4's discipline,
+ * extended to RfqStatus itself) — DRAFT -> ISSUED -> AWARDED, both
+ * terminal-on-the-way-in checks (issueRfq, awardRfq) now read this
+ * instead of an inline literal comparison, matching Order/Requisition/
+ * Negotiation's own tables.
+ */
+const RFQ_STATUS_TRANSITIONS: Record<RfqStatus, RfqStatus[]> = {
+  DRAFT: ["ISSUED"],
+  ISSUED: ["AWARDED"],
+  AWARDED: [],
+};
 
 async function assertRfqOwnership(organizationId: string, rfqId: string) {
   const rfq = await prisma.rfq.findFirst({
@@ -225,7 +257,7 @@ export async function createRfq(organizationId: string, actorUserId: string, inp
  * for why there is no further transition in this phase. */
 export async function issueRfq(organizationId: string, rfqId: string, actorUserId: string) {
   const existing = await assertRfqOwnership(organizationId, rfqId);
-  if (existing.status !== "DRAFT") {
+  if (!RFQ_STATUS_TRANSITIONS[existing.status].includes("ISSUED")) {
     throw AppError.conflict(`Cannot issue an RFQ in status ${existing.status}`);
   }
 
@@ -379,15 +411,153 @@ export async function getRfqForViewer(rfqId: string, viewerUserId: string) {
           items: { select: RESPONSE_ITEM_SELECT },
         },
       });
+
+      // A losing supplier must never learn WHO won (Phase 8 §7 extends
+      // Phase 7's "never leak another supplier's existence/data") — only
+      // whether its own response was the one awarded, once the RFQ
+      // actually is AWARDED. null means "not decided yet," never a guess.
+      let youWereAwarded: boolean | null = null;
+      if (base.status === "AWARDED") {
+        const award = await prisma.award.findUnique({ where: { rfqId }, select: { responseId: true } });
+        youWereAwarded = award ? award.responseId === ownResponse?.id : false;
+      }
+
+      // Lets the frontend link straight to "your negotiation" without a
+      // separate list call — own response only, never another supplier's.
+      const ownNegotiation = ownResponse
+        ? await prisma.negotiation.findUnique({ where: { responseId: ownResponse.id }, select: { id: true, status: true } })
+        : null;
+
       return {
         ...withRfqReference(rfq),
         viewerRole: "supplier" as const,
         viewerSupplierOrganizationId: target.supplierOrganizationId,
         target: ownTarget,
         response: ownResponse,
+        youWereAwarded,
+        negotiation: ownNegotiation,
       };
     }
   }
 
   throw AppError.notFound("RFQ not found");
+}
+
+// --- Phase 8: Comparison & Award ----------------------------------------
+
+const COMPARISON_RESPONSE_SELECT = {
+  id: true,
+  supplierOrganizationId: true,
+  supplierOrganization: { select: { id: true, legalName: true } },
+  status: true,
+  notes: true,
+  submittedAt: true,
+  withdrawnAt: true,
+  items: { select: RESPONSE_ITEM_SELECT },
+} as const;
+
+/**
+ * Buyer-side structured comparison of every SUBMITTED/WITHDRAWN response
+ * to an RFQ (Phase 8 §2) — built entirely from persisted SupplierResponse/
+ * SupplierResponseItem rows, never mock or computed data. Each response
+ * carries its own currency and item-level prices exactly as submitted;
+ * this function performs no cross-response arithmetic and no currency
+ * conversion (Phase 8 §2: "do not perform cross-currency arithmetic...
+ * preserve the currencies explicitly"). A response's negotiation summary
+ * (if one exists) is attached so the buyer can see at a glance whether a
+ * quote is still being negotiated before deciding — not a ranking, not a
+ * "best" flag, just the persisted facts side by side.
+ */
+export async function getRfqComparison(organizationId: string, rfqId: string) {
+  await assertRfqOwnership(organizationId, rfqId);
+
+  const rfq = await prisma.rfq.findUniqueOrThrow({
+    where: { id: rfqId },
+    select: {
+      id: true,
+      sequenceNumber: true,
+      title: true,
+      status: true,
+      items: { select: RFQ_ITEM_SELECT },
+      responses: {
+        where: { status: { in: ["SUBMITTED", "WITHDRAWN"] as ("SUBMITTED" | "WITHDRAWN")[] } },
+        select: COMPARISON_RESPONSE_SELECT,
+      },
+    },
+  });
+
+  const negotiations = await prisma.negotiation.findMany({
+    where: { responseId: { in: rfq.responses.map((r) => r.id) } },
+    select: { id: true, responseId: true, status: true, updatedAt: true },
+  });
+  const negotiationByResponse = new Map(negotiations.map((n) => [n.responseId, n]));
+
+  return {
+    ...withRfqReference(rfq),
+    responses: rfq.responses.map((response) => ({
+      ...response,
+      negotiation: negotiationByResponse.get(response.id) ?? null,
+    })),
+  };
+}
+
+/**
+ * Awards the RFQ to one supplier's SUBMITTED response (Phase 8 §5). The
+ * response must still belong to this RFQ and be SUBMITTED; an OPEN
+ * negotiation for it must be resolved first ("only after the required
+ * procurement workflow has been satisfied," §5) — resolving means ACCEPT
+ * or DECLINE, not simply ignoring it. RFQ transitions to AWARDED in the
+ * same transaction as the Award row, which is also this operation's
+ * duplicate-command guard (Phase 8 §4/§12): a second award attempt sees
+ * RFQ_STATUS_TRANSITIONS[AWARDED] is empty and gets 409 before ever
+ * reaching the database write — backed at the DB level by Award.rfqId's
+ * own unique constraint as well.
+ */
+export async function awardRfq(organizationId: string, rfqId: string, actorUserId: string, input: AwardRfqInput) {
+  const rfq = await assertRfqOwnership(organizationId, rfqId);
+  if (!RFQ_STATUS_TRANSITIONS[rfq.status].includes("AWARDED")) {
+    throw AppError.conflict(`Cannot award an RFQ in status ${rfq.status}`);
+  }
+
+  const response = await prisma.supplierResponse.findFirst({
+    where: { id: input.responseId, rfqId, status: "SUBMITTED" },
+    select: { id: true, supplierOrganizationId: true },
+  });
+  if (!response) {
+    throw AppError.badRequest("The selected response is not a valid, submitted response to this RFQ");
+  }
+
+  const openNegotiation = await prisma.negotiation.findFirst({
+    where: { responseId: response.id, status: "OPEN" },
+    select: { id: true },
+  });
+  if (openNegotiation) {
+    throw AppError.conflict("Resolve the open negotiation for this response (accept or decline it) before awarding it");
+  }
+
+  const award = await prisma.$transaction(async (tx) => {
+    const created = await tx.award.create({
+      data: {
+        rfqId,
+        responseId: response.id,
+        supplierOrganizationId: response.supplierOrganizationId,
+        awardedByUserId: actorUserId,
+        reason: input.reason,
+      },
+      select: AWARD_SELECT,
+    });
+    await tx.rfq.update({ where: { id: rfqId }, data: { status: "AWARDED" } });
+    return created;
+  });
+
+  await recordAudit({
+    actorUserId,
+    organizationId,
+    action: "AWARD_CREATED",
+    targetType: "Award",
+    targetId: award.id,
+    metadata: { rfqId, responseId: response.id, supplierOrganizationId: response.supplierOrganizationId },
+  });
+
+  return award;
 }

@@ -305,9 +305,11 @@ export interface OrderView {
 // --- Phase 7: Procurement Engine — Requisition & RFQ foundation --------
 
 export type RequisitionStatusValue = "DRAFT" | "SUBMITTED" | "RFQ_CREATED" | "CANCELLED";
-export type RfqStatusValue = "DRAFT" | "ISSUED";
+export type RfqStatusValue = "DRAFT" | "ISSUED" | "AWARDED";
 export type RfqSupplierTargetStatusValue = "INVITED" | "RESPONDED";
 export type SupplierResponseStatusValue = "DRAFT" | "SUBMITTED" | "WITHDRAWN";
+export type NegotiationStatusValue = "OPEN" | "ACCEPTED" | "CLOSED";
+export type NegotiationEventAuthorValue = "BUYER" | "SUPPLIER";
 
 export interface RequisitionItemView {
   id: string;
@@ -390,6 +392,16 @@ export interface RfqListEntry {
   _count: { targets: number; responses: number };
 }
 
+export interface AwardView {
+  id: string;
+  responseId: string;
+  supplierOrganizationId: string;
+  supplierOrganization: { id: string; legalName: string };
+  awardedByUserId: string;
+  reason: string | null;
+  createdAt: string;
+}
+
 /** The shared RFQ detail shape — fields present depend on viewerRole, same
  * convention as OrderView's viewerRole-gated fields. */
 export interface RfqView {
@@ -412,7 +424,61 @@ export interface RfqView {
   // Buyer-only:
   targets?: RfqTargetView[];
   responses?: SupplierResponseView[];
+  award?: AwardView | null;
   // Supplier-only:
   target?: { status: RfqSupplierTargetStatusValue; invitedAt: string; respondedAt: string | null };
   response?: SupplierResponseView | null;
+  youWereAwarded?: boolean | null;
+  negotiation?: { id: string; status: NegotiationStatusValue } | null;
+}
+
+// --- Phase 8: Comparison, Negotiation & Award ---------------------------
+
+export interface ComparisonResponseView extends SupplierResponseView {
+  negotiation: { id: string; status: NegotiationStatusValue; updatedAt: string } | null;
+}
+
+export interface RfqComparisonView {
+  id: string;
+  reference: string;
+  sequenceNumber: number;
+  title: string;
+  status: RfqStatusValue;
+  items: RfqItemView[];
+  responses: ComparisonResponseView[];
+}
+
+export interface NegotiationEventItemView {
+  id: string;
+  rfqItemId: string;
+  quantity: number;
+  unit: ProductUnitValue;
+  unitPriceMinor: number;
+  currency: string;
+  notes: string | null;
+}
+
+export interface NegotiationEventView {
+  id: string;
+  authorRole: NegotiationEventAuthorValue;
+  actorUserId: string;
+  message: string | null;
+  createdAt: string;
+  items: NegotiationEventItemView[];
+}
+
+export interface NegotiationView {
+  id: string;
+  rfqId: string;
+  responseId: string;
+  buyerOrganizationId: string;
+  supplierOrganizationId: string;
+  openedByUserId: string;
+  status: NegotiationStatusValue;
+  closedAt: string | null;
+  closeReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events: NegotiationEventView[];
+  viewerRole: "buyer" | "supplier";
 }

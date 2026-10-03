@@ -494,3 +494,87 @@ export const updateSupplierResponseDraftSchema = z.object({
   items: supplierResponseItemsSchema.optional(),
 });
 export type UpdateSupplierResponseDraftInput = z.infer<typeof updateSupplierResponseDraftSchema>;
+
+// --- Phase 8: Procurement Comparison, Negotiation & Award ---------------
+
+/**
+ * One proposed line within a negotiation counter-offer (Phase 8 §3).
+ * Same integer-minor-unit + explicit-currency shape as a supplier
+ * response item — see supplierResponseItemInputSchema above for why.
+ * rfqItemId membership is validated in the service layer (requires a
+ * database read), not here.
+ */
+const negotiationEventItemInputSchema = z.object({
+  rfqItemId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  unit: z.enum(PRODUCT_UNITS),
+  unitPriceMinor: z.number().int().positive(),
+  currency: z
+    .string()
+    .length(3)
+    .regex(/^[A-Z]{3}$/, "currency must be a 3-letter ISO 4217 code"),
+  notes: z.string().max(1000).optional(),
+});
+
+const negotiationEventItemsSchema = z
+  .array(negotiationEventItemInputSchema)
+  .min(1)
+  .max(100)
+  .superRefine((items, ctx) => {
+    const seen = new Set<string>();
+    for (const [i, item] of items.entries()) {
+      if (seen.has(item.rfqItemId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, "rfqItemId"],
+          message: "Duplicate line for the same RFQ item in one offer",
+        });
+      }
+      seen.add(item.rfqItemId);
+    }
+  });
+
+/**
+ * Opens a negotiation against a SUBMITTED supplier response (Phase 8 §3)
+ * — the opening call always carries the buyer's first counter-offer, so
+ * there is never a negotiation with zero events. `responseId` identifies
+ * which response is being negotiated; ownership/status of both the RFQ
+ * and the response are verified server-side, never trusted from the body.
+ */
+export const createNegotiationSchema = z.object({
+  responseId: z.string().uuid(),
+  message: z.string().max(2000).optional(),
+  items: negotiationEventItemsSchema,
+});
+export type CreateNegotiationInput = z.infer<typeof createNegotiationSchema>;
+
+/**
+ * A reply to an open negotiation (Phase 8 §3/§4), from whichever side's
+ * turn it is. COUNTER requires items (the new proposed values); ACCEPT/
+ * DECLINE close the negotiation and carry no commercial values of their
+ * own — accepting means agreeing to the other side's most recent offer,
+ * never silently inventing a different value.
+ */
+export const respondToNegotiationSchema = z
+  .object({
+    decision: z.enum(["COUNTER", "ACCEPT", "DECLINE"]),
+    message: z.string().max(2000).optional(),
+    items: negotiationEventItemsSchema.optional(),
+  })
+  .refine((body) => body.decision !== "COUNTER" || (body.items && body.items.length > 0), {
+    message: "items are required for a counter-offer",
+    path: ["items"],
+  });
+export type RespondToNegotiationInput = z.infer<typeof respondToNegotiationSchema>;
+
+/**
+ * Awards an RFQ to one supplier's response (Phase 8 §5). Carries no
+ * commercial values of its own — the award simply records WHICH response
+ * won; it does not redefine or snapshot pricing (that history already
+ * lives on the SupplierResponse/NegotiationEvent rows).
+ */
+export const awardRfqSchema = z.object({
+  responseId: z.string().uuid(),
+  reason: z.string().max(1000).optional(),
+});
+export type AwardRfqInput = z.infer<typeof awardRfqSchema>;

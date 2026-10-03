@@ -180,11 +180,11 @@ export const REQUISITION_STATUSES = ["DRAFT", "SUBMITTED", "RFQ_CREATED", "CANCE
 export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
 
 /**
- * RFQ lifecycle (Phase 7) — deliberately only DRAFT -> ISSUED this phase;
- * see schema.prisma's RfqStatus doc comment for why there is no
- * CLOSED/CANCELLED state yet.
+ * RFQ lifecycle (Phase 7, extended by Phase 8) — DRAFT -> ISSUED ->
+ * AWARDED; see schema.prisma's RfqStatus doc comment for the full
+ * rationale, including why there is still no CLOSED/CANCELLED state.
  */
-export const RFQ_STATUSES = ["DRAFT", "ISSUED"] as const;
+export const RFQ_STATUSES = ["DRAFT", "ISSUED", "AWARDED"] as const;
 export type RfqStatus = (typeof RFQ_STATUSES)[number];
 
 /** Per-supplier invitation state on an RFQ (Phase 7). */
@@ -198,3 +198,16 @@ export type RfqSupplierTargetStatus = (typeof RFQ_SUPPLIER_TARGET_STATUSES)[numb
  */
 export const SUPPLIER_RESPONSE_STATUSES = ["DRAFT", "SUBMITTED", "WITHDRAWN"] as const;
 export type SupplierResponseStatus = (typeof SUPPLIER_RESPONSE_STATUSES)[number];
+
+/**
+ * Negotiation lifecycle (Phase 8) — OPEN is the only non-terminal state;
+ * see schema.prisma's NegotiationStatus doc comment for why ACCEPTED/
+ * CLOSED have no reopening path this phase.
+ */
+export const NEGOTIATION_STATUSES = ["OPEN", "ACCEPTED", "CLOSED"] as const;
+export type NegotiationStatus = (typeof NEGOTIATION_STATUSES)[number];
+
+/** Which side authored a negotiation event (Phase 8) — never inferred,
+ * always explicit and server-validated. */
+export const NEGOTIATION_EVENT_AUTHORS = ["BUYER", "SUPPLIER"] as const;
+export type NegotiationEventAuthor = (typeof NEGOTIATION_EVENT_AUTHORS)[number];

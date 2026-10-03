@@ -26,6 +26,10 @@ const STYLES: Record<string, string> = {
   INVITED: "bg-muted/20 text-text-secondary",
   RESPONDED: "bg-success/10 text-success",
   WITHDRAWN: "bg-danger/10 text-danger",
+  AWARDED: "bg-success/10 text-success",
+  OPEN: "bg-info/10 text-info",
+  ACCEPTED: "bg-success/10 text-success",
+  CLOSED: "bg-muted/20 text-text-secondary",
 };
 
 /**
