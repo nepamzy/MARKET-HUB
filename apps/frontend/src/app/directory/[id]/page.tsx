@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequestQuotationButton } from "@/components/RequestQuotationButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
@@ -88,6 +89,16 @@ function DirectoryDetailContent() {
           <p className="text-sm text-text-primary">{org.contactPhone}</p>
         </section>
       )}
+
+      <section className="card mt-6">
+        <h2 className="text-lg font-semibold text-text-primary">Procurement</h2>
+        <p className="mt-1 text-sm text-text-secondary">
+          Start a requisition and invite {org.legalName} to respond through RFQ procurement.
+        </p>
+        <div className="mt-3">
+          <RequestQuotationButton supplierName={org.legalName} label="Request a quotation" />
+        </div>
+      </section>
     </div>
   );
 }

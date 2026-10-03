@@ -30,6 +30,8 @@ const STYLES: Record<string, string> = {
   OPEN: "bg-info/10 text-info",
   ACCEPTED: "bg-success/10 text-success",
   CLOSED: "bg-muted/20 text-text-secondary",
+  PENDING_APPROVAL: "bg-warning/10 text-warning",
+  APPROVED: "bg-success/10 text-success",
 };
 
 /**

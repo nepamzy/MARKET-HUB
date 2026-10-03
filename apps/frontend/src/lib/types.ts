@@ -425,6 +425,7 @@ export interface RfqView {
   targets?: RfqTargetView[];
   responses?: SupplierResponseView[];
   award?: AwardView | null;
+  purchaseOrder?: { id: string; status: PurchaseOrderStatusValue } | null;
   // Supplier-only:
   target?: { status: RfqSupplierTargetStatusValue; invitedAt: string; respondedAt: string | null };
   response?: SupplierResponseView | null;
@@ -480,5 +481,66 @@ export interface NegotiationView {
   createdAt: string;
   updatedAt: string;
   events: NegotiationEventView[];
+  viewerRole: "buyer" | "supplier";
+}
+
+// --- Phase 9: Purchase Order & Procurement Award Execution Foundation ---
+
+export type PurchaseOrderStatusValue = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "CONFIRMED";
+
+export interface PurchaseOrderItemView {
+  id: string;
+  rfqItemId: string | null;
+  productId: string | null;
+  itemName: string;
+  specification: string | null;
+  quantity: number;
+  unit: ProductUnitValue;
+  unitPriceMinor: number;
+  currency: string;
+  lineTotalMinor: number;
+  createdAt: string;
+}
+
+export interface PurchaseOrderListEntry {
+  id: string;
+  sequenceNumber: number;
+  reference: string;
+  status: PurchaseOrderStatusValue;
+  currency: string;
+  totalMinor: number;
+  totalQuantity: number;
+  buyerOrganizationName: string;
+  supplierOrganizationName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseOrderView {
+  id: string;
+  sequenceNumber: number;
+  reference: string;
+  awardId: string;
+  rfqId: string;
+  responseId: string;
+  buyerOrganizationId: string;
+  buyerOrganizationName: string;
+  supplierOrganizationId: string;
+  supplierOrganizationName: string;
+  createdByUserId: string;
+  status: PurchaseOrderStatusValue;
+  currency: string;
+  subtotalMinor: number;
+  totalMinor: number;
+  totalQuantity: number;
+  notes: string | null;
+  submittedForApprovalAt: string | null;
+  approvedAt: string | null;
+  approvedByUserId: string | null;
+  confirmedAt: string | null;
+  confirmedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: PurchaseOrderItemView[];
   viewerRole: "buyer" | "supplier";
 }

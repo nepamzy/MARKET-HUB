@@ -235,6 +235,25 @@ enum NegotiationEventAuthor {
   SUPPLIER
 }
 
+/// Purchase order lifecycle (Phase 9) — DRAFT -> PENDING_APPROVAL ->
+/// APPROVED -> CONFIRMED, the recommended foundation from the Phase 9
+/// spec, implemented literally with no added states. Deliberately no
+/// CANCELLED state: Phase 9 excludes payments/fulfillment/inventory, so
+/// there is no safe, well-defined point at which "cancel" would mean
+/// anything beyond "stop looking at this record," and the phase's own
+/// scope note says cancellation is optional ("only if logically safe and
+/// explicitly documented") — adding it with no real consequence to cancel
+/// would be exactly the "implies functionality that doesn't exist" trap
+/// RfqStatus's doc comment already called out. Transitions are centralized
+/// in purchaseOrders.service.ts's PURCHASE_ORDER_STATUS_TRANSITIONS, same
+/// discipline as every other lifecycle in this schema.
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  CONFIRMED
+}
+
 model User {
   id            String        @id @default(uuid())
   name          String
@@ -263,6 +282,9 @@ model User {
   negotiationsOpened         Negotiation[]
   negotiationEvents          NegotiationEvent[]
   awardsCreated              Award[]
+  purchaseOrdersCreated      PurchaseOrder[]           @relation("PurchaseOrderCreatedBy")
+  purchaseOrdersApproved     PurchaseOrder[]           @relation("PurchaseOrderApprovedBy")
+  purchaseOrdersConfirmed    PurchaseOrder[]           @relation("PurchaseOrderConfirmedBy")
 
   @@map("users")
 }
@@ -310,21 +332,23 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships            OrganizationMembership[]
-  auditLogs              AuditLog[]                @relation("OrganizationAuditLogs")
-  inviteLinks            OrganizationInviteLink[]
-  joinRequests           OrganizationJoinRequest[]
-  kycSubmission          KYCSubmission?
-  supplierProfile        SupplierProfile?
-  products               Product[]
-  ordersAsSeller         Order[]
-  requisitionsAsBuyer    Requisition[]
-  rfqsAsBuyer            Rfq[]
-  rfqSupplierTargets     RfqSupplierTarget[]
-  supplierResponses      SupplierResponse[]
-  negotiationsAsBuyer    Negotiation[]             @relation("NegotiationBuyer")
-  negotiationsAsSupplier Negotiation[]             @relation("NegotiationSupplier")
-  awardsAsSupplier       Award[]
+  memberships              OrganizationMembership[]
+  auditLogs                AuditLog[]                @relation("OrganizationAuditLogs")
+  inviteLinks              OrganizationInviteLink[]
+  joinRequests             OrganizationJoinRequest[]
+  kycSubmission            KYCSubmission?
+  supplierProfile          SupplierProfile?
+  products                 Product[]
+  ordersAsSeller           Order[]
+  requisitionsAsBuyer      Requisition[]
+  rfqsAsBuyer              Rfq[]
+  rfqSupplierTargets       RfqSupplierTarget[]
+  supplierResponses        SupplierResponse[]
+  negotiationsAsBuyer      Negotiation[]             @relation("NegotiationBuyer")
+  negotiationsAsSupplier   Negotiation[]             @relation("NegotiationSupplier")
+  awardsAsSupplier         Award[]
+  purchaseOrdersAsBuyer    PurchaseOrder[]           @relation("PurchaseOrderBuyer")
+  purchaseOrdersAsSupplier PurchaseOrder[]           @relation("PurchaseOrderSupplier")
 
   @@index([businessType])
   @@map("organizations")
@@ -417,12 +441,13 @@ model Product {
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
-  prices           ProductPrice[]
-  commercialOffer  CommercialOffer?
-  cartItems        CartItem[]
-  orderItems       OrderItem[]
-  requisitionItems RequisitionItem[]
-  rfqItems         RfqItem[]
+  prices             ProductPrice[]
+  commercialOffer    CommercialOffer?
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+  requisitionItems   RequisitionItem[]
+  rfqItems           RfqItem[]
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -888,11 +913,12 @@ model Rfq {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
-  items        RfqItem[]
-  targets      RfqSupplierTarget[]
-  responses    SupplierResponse[]
-  negotiations Negotiation[]
-  award        Award?
+  items         RfqItem[]
+  targets       RfqSupplierTarget[]
+  responses     SupplierResponse[]
+  negotiations  Negotiation[]
+  award         Award?
+  purchaseOrder PurchaseOrder?
 
   @@index([buyerOrganizationId])
   @@index([requisitionId])
@@ -926,6 +952,7 @@ model RfqItem {
 
   responseItems         SupplierResponseItem[]
   negotiationEventItems NegotiationEventItem[]
+  purchaseOrderItems    PurchaseOrderItem[]
 
   @@index([rfqId])
   @@map("rfq_items")
@@ -973,9 +1000,10 @@ model SupplierResponse {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
-  items       SupplierResponseItem[]
-  negotiation Negotiation?
-  award       Award?
+  items         SupplierResponseItem[]
+  negotiation   Negotiation?
+  award         Award?
+  purchaseOrder PurchaseOrder?
 
   @@unique([rfqId, supplierOrganizationId])
   @@index([supplierOrganizationId])
@@ -1123,5 +1151,105 @@ model Award {
   reason                 String?
   createdAt              DateTime         @default(now())
 
+  purchaseOrder PurchaseOrder?
+
   @@map("awards")
+}
+
+// ---------------------------------------------------------------------
+// Phase 9 — Purchase Order & Procurement Award Execution Foundation
+//
+// Award -> Purchase Order -> PO Approval -> Supplier Confirmation. A
+// PurchaseOrder is created from exactly one Award (Award.id is @unique on
+// PurchaseOrder.awardId, enforcing one PO per Award at the database level,
+// not just in the service layer) and represents the final, immutable
+// commercial record of what was awarded — resolved from the Award's
+// SupplierResponse/accepted Negotiation at creation time, never rebuilt
+// later and never mutating those historical rows. No payment, inventory
+// reservation, shipment, or delivery tracking is created from any of this
+// (Phase 9 scope boundary) — this is strictly Award -> PO -> Approval ->
+// Supplier Confirmation.
+// ---------------------------------------------------------------------
+
+/// A buyer organization's purchase order, created from exactly one Award
+/// (Phase 9). buyerOrganizationId/supplierOrganizationId are denormalized
+/// from the award's own RFQ/response (both immutable once the award
+/// exists) for the same reason Negotiation denormalizes them — direct,
+/// join-free authorization checks. rfqId and responseId are kept as loose
+/// provenance references (the PO's own items are the authoritative
+/// snapshot, never read live through these) mirroring RfqItem's
+/// requisitionItemId pattern. sequenceNumber follows the exact
+/// Requisition/Rfq reference-number convention ("PO-000123").
+model PurchaseOrder {
+  id                       String              @id @default(uuid())
+  sequenceNumber           Int                 @unique @default(autoincrement())
+  awardId                  String              @unique
+  award                    Award               @relation(fields: [awardId], references: [id], onDelete: Restrict)
+  rfqId                    String              @unique
+  rfq                      Rfq                 @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  responseId               String              @unique
+  response                 SupplierResponse    @relation(fields: [responseId], references: [id], onDelete: Restrict)
+  buyerOrganizationId      String
+  buyerOrganization        Organization        @relation("PurchaseOrderBuyer", fields: [buyerOrganizationId], references: [id], onDelete: Restrict)
+  buyerOrganizationName    String
+  supplierOrganizationId   String
+  supplierOrganization     Organization        @relation("PurchaseOrderSupplier", fields: [supplierOrganizationId], references: [id], onDelete: Restrict)
+  supplierOrganizationName String
+  createdByUserId          String
+  createdByUser            User                @relation("PurchaseOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  status                   PurchaseOrderStatus @default(DRAFT)
+  currency                 String
+  subtotalMinor            Int
+  totalMinor               Int
+  totalQuantity            Int
+  notes                    String?
+  submittedForApprovalAt   DateTime?
+  approvedAt               DateTime?
+  approvedByUserId         String?
+  approvedByUser           User?               @relation("PurchaseOrderApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  confirmedAt              DateTime?
+  confirmedByUserId        String?
+  confirmedByUser          User?               @relation("PurchaseOrderConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: Restrict)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  items PurchaseOrderItem[]
+
+  @@index([buyerOrganizationId])
+  @@index([supplierOrganizationId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+/// One snapshotted line on a PurchaseOrder (Phase 9) — the final awarded
+/// terms for that line, resolved once at PO-creation time from either the
+/// original SupplierResponseItem or (if the response was negotiated and
+/// the negotiation was ACCEPTED) the most recent NegotiationEventItem.
+/// productId is nullable (SetNull) to support custom/non-catalogue items,
+/// same pattern as RequisitionItem/RfqItem; itemName/specification/
+/// quantity/unit/unitPriceMinor/currency/lineTotalMinor are always the
+/// authoritative values a buyer or supplier needs to understand what was
+/// awarded — never re-read through productId, so this row remains
+/// meaningful even if the live product is edited or archived later.
+/// rfqItemId is kept only as a loose provenance pointer (SetNull), exactly
+/// like SupplierResponseItem/NegotiationEventItem's own rfqItemId.
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  rfqItemId       String?
+  rfqItem         RfqItem?      @relation(fields: [rfqItemId], references: [id], onDelete: SetNull)
+  productId       String?
+  product         Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  itemName        String
+  specification   String?
+  quantity        Int
+  unit            ProductUnit
+  unitPriceMinor  Int
+  currency        String
+  lineTotalMinor  Int
+  createdAt       DateTime      @default(now())
+
+  @@index([purchaseOrderId])
+  @@map("purchase_order_items")
 }

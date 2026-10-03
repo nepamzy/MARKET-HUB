@@ -22,6 +22,12 @@ async function resetDatabase(): Promise<void> {
     prisma.order.deleteMany(),
     prisma.cartItem.deleteMany(),
     prisma.cart.deleteMany(),
+    // Phase 9 — PurchaseOrder/PurchaseOrderItem use onDelete:Restrict on
+    // Award/Rfq/SupplierResponse/Organization/User, so both must be
+    // cleared before any of those, and specifically before Award below
+    // (PurchaseOrder.awardId is Restrict).
+    prisma.purchaseOrderItem.deleteMany(),
+    prisma.purchaseOrder.deleteMany(),
     // Phase 8 procurement tables — Negotiation/Award both use
     // onDelete:Restrict on their Rfq/SupplierResponse/Organization
     // relations, so they must be cleared before Rfq/SupplierResponse

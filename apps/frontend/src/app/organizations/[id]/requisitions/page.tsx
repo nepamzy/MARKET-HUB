@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { FormAlert } from "@/components/FormAlert";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -25,12 +25,28 @@ function emptyItem(): ItemDraft {
 
 function RequisitionsContent() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const authedFetch = useAuthedFetch();
   const [requisitions, setRequisitions] = useState<RequisitionView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [title, setTitle] = useState("");
-  const [items, setItems] = useState<ItemDraft[]>([emptyItem()]);
+
+  const prefillItem = searchParams.get("item") ?? "";
+  const prefillUnit = searchParams.get("unit") as ProductUnitValue | null;
+  const prefillSupplier = searchParams.get("supplier") ?? "";
+  const hasPrefill = Boolean(prefillItem || prefillSupplier);
+
+  const [showForm, setShowForm] = useState(hasPrefill);
+  const [title, setTitle] = useState(hasPrefill ? "Quotation request" : "");
+  const [items, setItems] = useState<ItemDraft[]>(() => [
+    hasPrefill
+      ? {
+          itemName: prefillItem,
+          quantity: 1,
+          unit: prefillUnit && UNITS.includes(prefillUnit) ? prefillUnit : "PIECE",
+          specification: prefillSupplier ? `Requested from ${prefillSupplier}` : "",
+        }
+      : emptyItem(),
+  ]);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -94,6 +110,11 @@ function RequisitionsContent() {
       {showForm && (
         <form onSubmit={handleCreate} className="card mt-6 space-y-4">
           {formError && <FormAlert>{formError}</FormAlert>}
+          {hasPrefill && (
+            <p className="rounded-control bg-background px-3 py-2 text-xs text-text-secondary">
+              Prefilled from {prefillSupplier ? `${prefillSupplier}'s profile` : "the catalogue"} — review before submitting.
+            </p>
+          )}
           <div>
             <label htmlFor="title" className="field-label">
               Title
@@ -219,7 +240,9 @@ function RequisitionsContent() {
 export default function RequisitionsPage() {
   return (
     <RequireAuth>
-      <RequisitionsContent />
+      <Suspense fallback={<p className="text-sm text-text-secondary">Loading…</p>}>
+        <RequisitionsContent />
+      </Suspense>
     </RequireAuth>
   );
 }

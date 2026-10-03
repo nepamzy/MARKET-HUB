@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { FormAlert } from "@/components/FormAlert";
+import { RequestQuotationButton } from "@/components/RequestQuotationButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
 import { formatMinorUnits } from "@/lib/money";
@@ -145,6 +146,16 @@ function ProductDetailContent() {
         ) : (
           <p className="text-sm text-text-secondary">This product is not currently available for purchase.</p>
         )}
+      </section>
+
+      <section className="card mt-6">
+        <h2 className="text-lg font-semibold text-text-primary">Need bulk pricing or custom terms?</h2>
+        <p className="mt-1 text-sm text-text-secondary">
+          Start a requisition for this item and invite suppliers to quote through RFQ procurement.
+        </p>
+        <div className="mt-3">
+          <RequestQuotationButton itemName={product.name} unit={product.unit} />
+        </div>
       </section>
 
       <section className="card mt-6">

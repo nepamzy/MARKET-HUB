@@ -83,6 +83,10 @@ const RFQ_BUYER_SELECT = {
     },
   },
   award: { select: AWARD_SELECT },
+  // Lets the buyer's RFQ detail page link straight to "create" or "view"
+  // the purchase order without a separate lookup (Phase 9). Minimal select
+  // — the PO detail endpoint is the source of truth for everything else.
+  purchaseOrder: { select: { id: true, status: true } },
 } as const;
 
 // What a targeted supplier may see: the RFQ's own content, never any other
@@ -102,6 +106,10 @@ const RFQ_SUPPLIER_SELECT = {
   createdAt: true,
   updatedAt: true,
   items: { select: RFQ_ITEM_SELECT },
+  // Safe to expose: at most one PO can ever exist per RFQ (Award.rfqId is
+  // @unique, PurchaseOrder.awardId is @unique), and a supplier only reaches
+  // this branch at all once it is a confirmed party — see getRfqForViewer.
+  purchaseOrder: { select: { id: true, status: true } },
 } as const;
 
 const RFQ_LIST_SELECT = {

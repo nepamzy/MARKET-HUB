@@ -17,6 +17,11 @@ import { organizationsRouter } from "./modules/organizations/organizations.route
 import { checkoutRouter, organizationOrdersRouter, ordersRouter } from "./modules/orders/orders.routes";
 import { categoriesRouter, organizationProductsRouter, publicProductsRouter } from "./modules/products/products.routes";
 import { negotiationDetailRouter, organizationNegotiationsRouter } from "./modules/procurement/negotiations.routes";
+import {
+  organizationPurchaseOrdersRouter,
+  organizationSupplierPurchaseOrdersRouter,
+  purchaseOrderDetailRouter,
+} from "./modules/procurement/purchaseOrders.routes";
 import { organizationRequisitionsRouter } from "./modules/procurement/requisitions.routes";
 import { organizationRfqInboxRouter, organizationRfqsRouter, rfqDetailRouter } from "./modules/procurement/rfqs.routes";
 import { organizationSupplierResponsesRouter } from "./modules/procurement/supplierResponses.routes";
@@ -69,8 +74,11 @@ export function createApp(): Express {
   app.use("/api/organizations", organizationRfqInboxRouter);
   app.use("/api/organizations", organizationSupplierResponsesRouter);
   app.use("/api/organizations", organizationNegotiationsRouter);
+  app.use("/api/organizations", organizationPurchaseOrdersRouter);
+  app.use("/api/organizations", organizationSupplierPurchaseOrdersRouter);
   app.use("/api/rfqs", rfqDetailRouter);
   app.use("/api/negotiations", negotiationDetailRouter);
+  app.use("/api/purchase-orders", purchaseOrderDetailRouter);
   app.use("/api/directory", directoryRouter);
   app.use("/api/products", publicProductsRouter);
   app.use("/api/categories", categoriesRouter);

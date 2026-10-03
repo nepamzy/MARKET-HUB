@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { FormAlert } from "@/components/FormAlert";
@@ -38,11 +38,29 @@ function draftsFromRfq(rfq: RfqView, existing?: SupplierResponseItemView[] | nul
 
 function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<void> }) {
   const authedFetch = useAuthedFetch();
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showAddTarget, setShowAddTarget] = useState(false);
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<DirectoryListing[]>([]);
+  const [creatingPo, setCreatingPo] = useState(false);
+  const [poError, setPoError] = useState<string | null>(null);
+
+  async function createPurchaseOrder() {
+    setPoError(null);
+    setCreatingPo(true);
+    try {
+      const po = await authedFetch<{ id: string }>(`/organizations/${rfq.buyerOrganizationId}/rfqs/${rfq.id}/purchase-order`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      router.push(`/purchase-orders/${po.id}`);
+    } catch (err) {
+      setPoError(err instanceof ApiError ? err.message : "Could not create a purchase order.");
+      setCreatingPo(false);
+    }
+  }
 
   async function issue() {
     setActionError(null);
@@ -166,6 +184,24 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
             This RFQ was awarded to {rfq.award.supplierOrganization.legalName}.
           </p>
           {rfq.award.reason && <p className="mt-1 text-sm text-text-secondary">Reason: {rfq.award.reason}</p>}
+
+          {poError && (
+            <div className="mt-3">
+              <FormAlert>{poError}</FormAlert>
+            </div>
+          )}
+
+          <div className="mt-3">
+            {rfq.purchaseOrder ? (
+              <Link href={`/purchase-orders/${rfq.purchaseOrder.id}`} className="btn-primary">
+                View purchase order
+              </Link>
+            ) : (
+              <button type="button" disabled={creatingPo} onClick={createPurchaseOrder} className="btn-primary">
+                {creatingPo ? "Creating…" : "Create purchase order"}
+              </button>
+            )}
+          </div>
         </section>
       )}
 
@@ -307,9 +343,14 @@ function SupplierView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise
           </h2>
           <p className="mt-1 text-sm text-text-secondary">
             {rfq.youWereAwarded
-              ? "The buyer selected your response. Further commercial steps will follow in a later phase."
+              ? "The buyer selected your response."
               : "The buyer selected another supplier's response for this RFQ."}
           </p>
+          {rfq.youWereAwarded && rfq.purchaseOrder && (
+            <Link href={`/purchase-orders/${rfq.purchaseOrder.id}`} className="btn-primary mt-3 inline-flex">
+              View purchase order
+            </Link>
+          )}
         </section>
       )}
 

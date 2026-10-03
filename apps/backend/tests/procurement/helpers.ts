@@ -121,3 +121,34 @@ export async function createSubmittedResponse(
 
   return { responseId };
 }
+
+/** Full buyer+supplier setup through to a fresh AWARDED RFQ — the starting
+ * point most Phase 9 purchase-order tests need. Returns everything a test
+ * might want to assert against (ids, the final unit price used). */
+export async function createAwardedRfq(app: Express, unitPriceMinor = 150000) {
+  const buyer = await createBuyer(app);
+  const supplier = await createSupplier(app);
+  const { requisitionId } = await createSubmittedRequisition(app, buyer.owner.accessToken, buyer.organizationId);
+  const { rfqId, items } = await createIssuedRfq(app, buyer.owner.accessToken, buyer.organizationId, requisitionId, [
+    supplier.organizationId,
+  ]);
+  const rfqItemId = items[0]!.id;
+  const { responseId } = await createSubmittedResponse(
+    app,
+    supplier.owner.accessToken,
+    supplier.organizationId,
+    rfqId,
+    rfqItemId,
+    unitPriceMinor
+  );
+
+  const awardRes = await request(app)
+    .post(`/api/organizations/${buyer.organizationId}/rfqs/${rfqId}/award`)
+    .set("Authorization", `Bearer ${buyer.owner.accessToken}`)
+    .send({ responseId });
+  if (awardRes.status !== 201) {
+    throw new Error(`Award failed in test helper: ${awardRes.status} ${JSON.stringify(awardRes.body)}`);
+  }
+
+  return { buyer, supplier, rfqId, rfqItemId, responseId, unitPriceMinor };
+}

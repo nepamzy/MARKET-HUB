@@ -7,6 +7,7 @@ import {
   PRICE_TIERS,
   PRODUCT_STATUSES,
   PRODUCT_UNITS,
+  PURCHASE_ORDER_STATUSES,
   SUPPLIER_CAPABILITIES,
   VERIFICATION_STATUSES,
 } from "./enums";
@@ -578,3 +579,27 @@ export const awardRfqSchema = z.object({
   reason: z.string().max(1000).optional(),
 });
 export type AwardRfqInput = z.infer<typeof awardRfqSchema>;
+
+// --- Phase 9: Purchase Order & Procurement Award Execution Foundation ---
+
+/**
+ * Creates a purchase order from an Award (Phase 9). Carries no commercial
+ * values of its own — every item, price, quantity and currency is resolved
+ * server-side from the Award's SupplierResponse/accepted Negotiation, never
+ * accepted from the client (same discipline as awardRfqSchema not carrying
+ * pricing). `notes` is the only buyer-supplied field: free-text applicable
+ * terms, the same pattern SupplierResponse/Negotiation already use instead
+ * of a rigid structured payment/delivery-terms engine this phase does not
+ * build.
+ */
+export const createPurchaseOrderSchema = z.object({
+  notes: z.string().max(2000).optional(),
+});
+export type CreatePurchaseOrderInput = z.infer<typeof createPurchaseOrderSchema>;
+
+export const purchaseOrderListQuerySchema = z.object({
+  status: z.enum(PURCHASE_ORDER_STATUSES).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type PurchaseOrderListQuery = z.infer<typeof purchaseOrderListQuerySchema>;

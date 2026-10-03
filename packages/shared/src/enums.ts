@@ -211,3 +211,12 @@ export type NegotiationStatus = (typeof NEGOTIATION_STATUSES)[number];
  * always explicit and server-validated. */
 export const NEGOTIATION_EVENT_AUTHORS = ["BUYER", "SUPPLIER"] as const;
 export type NegotiationEventAuthor = (typeof NEGOTIATION_EVENT_AUTHORS)[number];
+
+/**
+ * Purchase order lifecycle (Phase 9) — see schema.prisma's
+ * PurchaseOrderStatus doc comment for why there is no CANCELLED state.
+ * Transitions are centralized in purchaseOrders.service.ts, never a
+ * free-text status.
+ */
+export const PURCHASE_ORDER_STATUSES = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "CONFIRMED"] as const;
+export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
