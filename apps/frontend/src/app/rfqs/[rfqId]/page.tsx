@@ -36,6 +36,17 @@ function draftsFromRfq(rfq: RfqView, existing?: SupplierResponseItemView[] | nul
   });
 }
 
+function sumByCurrency(rows: { quantity: number; unitPriceMinor: number; currency: string }[]): string | null {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    totals.set(row.currency, (totals.get(row.currency) ?? 0) + row.quantity * row.unitPriceMinor);
+  }
+  if (totals.size === 0) return null;
+  return Array.from(totals.entries())
+    .map(([currency, minor]) => formatMinorUnits(minor, currency))
+    .join(" + ");
+}
+
 function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<void> }) {
   const authedFetch = useAuthedFetch();
   const router = useRouter();
@@ -218,10 +229,17 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
           <p className="mt-2 text-sm text-text-secondary">No responses submitted yet.</p>
         )}
         <div className="mt-4 space-y-4">
-          {rfq.responses?.map((response) => (
+          {rfq.responses?.map((response) => {
+            const responseTotal = sumByCurrency(response.items);
+            return (
             <div key={response.id} className="rounded-control border border-border p-4">
-              <div className="flex items-center justify-between">
-                <p className="font-medium text-text-primary">{response.supplierOrganization?.legalName ?? response.supplierOrganizationId}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium text-text-primary">{response.supplierOrganization?.legalName ?? response.supplierOrganizationId}</p>
+                  {response.submittedAt && (
+                    <p className="text-xs text-text-secondary">Submitted {new Date(response.submittedAt).toLocaleString()}</p>
+                  )}
+                </div>
                 <StatusBadge status={response.status} />
               </div>
               {response.notes && <p className="mt-1 text-sm text-text-secondary">{response.notes}</p>}
@@ -231,6 +249,7 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
                     <th className="py-1 font-medium">Item</th>
                     <th className="py-1 font-medium">Qty</th>
                     <th className="py-1 font-medium">Unit price</th>
+                    <th className="py-1 font-medium text-right">Line total</th>
                     <th className="py-1 font-medium">Lead time</th>
                   </tr>
                 </thead>
@@ -239,19 +258,34 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
                     const requested = rfq.items.find((i) => i.id === item.rfqItemId);
                     return (
                       <tr key={item.id}>
-                        <td className="py-1">{requested?.itemName ?? item.rfqItemId}</td>
+                        <td className="py-1">
+                          <p>{requested?.itemName ?? item.rfqItemId}</p>
+                          {requested?.specification && (
+                            <p className="text-xs text-text-secondary">{requested.specification}</p>
+                          )}
+                        </td>
                         <td className="py-1">
                           {item.quantity} {item.unit.toLowerCase()}
                         </td>
                         <td className="py-1">{formatMinorUnits(item.unitPriceMinor, item.currency)}</td>
+                        <td className="py-1 text-right font-medium text-text-primary">
+                          {formatMinorUnits(item.quantity * item.unitPriceMinor, item.currency)}
+                        </td>
                         <td className="py-1 text-text-secondary">{item.leadTimeDays != null ? `${item.leadTimeDays} days` : "—"}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                <p className="text-text-secondary">
+                  {response.items.length} of {rfq.items.length} item(s) quoted
+                </p>
+                {responseTotal && <p className="font-medium text-text-primary">Total: {responseTotal}</p>}
+              </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>
@@ -269,6 +303,10 @@ function SupplierView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise
   const hasResponse = Boolean(rfq.response);
   const isDraft = rfq.response?.status === "DRAFT";
   const isEditable = !hasResponse || isDraft;
+  const pricedItems = items
+    .filter((item) => item.unitPriceMinor !== "" && !Number.isNaN(Number(item.unitPriceMinor)))
+    .map((item) => ({ quantity: item.quantity, unitPriceMinor: Math.round(Number(item.unitPriceMinor) * 100), currency: item.currency }));
+  const responseTotal = sumByCurrency(pricedItems);
 
   function updateItem(rfqItemId: string, patch: Partial<ResponseItemDraft>) {
     setItems((prev) => prev.map((item) => (item.rfqItemId === rfqItemId ? { ...item, ...patch } : item)));
@@ -371,6 +409,16 @@ function SupplierView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise
           <h2 className="text-lg font-semibold text-text-primary">Your response</h2>
           {rfq.response && <StatusBadge status={rfq.response.status} />}
         </div>
+        <p className="mt-1 text-xs text-text-secondary">
+          {!hasResponse && "Fill in pricing per item, save a draft, then submit when ready."}
+          {isDraft && "This response is a draft — only your organization can see it until you submit."}
+          {rfq.response?.status === "SUBMITTED" &&
+            rfq.response.submittedAt &&
+            `Submitted ${new Date(rfq.response.submittedAt).toLocaleString()} — visible to the buyer.`}
+          {rfq.response?.status === "WITHDRAWN" &&
+            rfq.response.withdrawnAt &&
+            `Withdrawn ${new Date(rfq.response.withdrawnAt).toLocaleString()}.`}
+        </p>
 
         {actionError && (
           <div className="mt-4">
@@ -379,46 +427,83 @@ function SupplierView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise
         )}
 
         <div className="mt-4 space-y-3">
-          {items.map((item) => (
-            <div key={item.rfqItemId} className="grid grid-cols-1 gap-2 rounded-control border border-border p-3 sm:grid-cols-12">
-              <p className="flex items-center text-sm font-medium text-text-primary sm:col-span-3">{item.itemName}</p>
-              <input
-                type="number"
-                min={1}
-                disabled={!isEditable}
-                className="field-input sm:col-span-2"
-                value={item.quantity}
-                onChange={(e) => updateItem(item.rfqItemId, { quantity: Number(e.target.value) })}
-              />
-              <input
-                type="number"
-                step="0.01"
-                min={0}
-                disabled={!isEditable}
-                placeholder="Unit price"
-                className="field-input sm:col-span-2"
-                value={item.unitPriceMinor}
-                onChange={(e) => updateItem(item.rfqItemId, { unitPriceMinor: e.target.value })}
-              />
-              <input
-                disabled={!isEditable}
-                placeholder="NGN"
-                className="field-input sm:col-span-2"
-                value={item.currency}
-                onChange={(e) => updateItem(item.rfqItemId, { currency: e.target.value.toUpperCase() })}
-              />
-              <input
-                type="number"
-                min={0}
-                disabled={!isEditable}
-                placeholder="Lead days"
-                className="field-input sm:col-span-3"
-                value={item.leadTimeDays}
-                onChange={(e) => updateItem(item.rfqItemId, { leadTimeDays: e.target.value })}
-              />
-            </div>
-          ))}
+          {items.map((item) => {
+            const requested = rfq.items.find((i) => i.id === item.rfqItemId);
+            const price = Number(item.unitPriceMinor);
+            const lineTotal =
+              item.unitPriceMinor !== "" && !Number.isNaN(price)
+                ? formatMinorUnits(Math.round(price * 100) * item.quantity, item.currency)
+                : null;
+            return (
+              <div key={item.rfqItemId} className="rounded-control border border-border p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-1">
+                  <p className="text-sm font-medium text-text-primary">{item.itemName}</p>
+                  <p className="text-xs text-text-secondary">
+                    Requested {requested?.quantity ?? item.quantity} {(requested?.unit ?? item.unit).toLowerCase()}
+                  </p>
+                </div>
+                {requested?.specification && <p className="text-xs text-text-secondary">{requested.specification}</p>}
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-12">
+                  <label className="sm:col-span-2">
+                    <span className="mb-1 block text-xs text-text-secondary">Quantity</span>
+                    <input
+                      type="number"
+                      min={1}
+                      disabled={!isEditable}
+                      className="field-input"
+                      value={item.quantity}
+                      onChange={(e) => updateItem(item.rfqItemId, { quantity: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label className="sm:col-span-2">
+                    <span className="mb-1 block text-xs text-text-secondary">Unit price</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      disabled={!isEditable}
+                      placeholder="0.00"
+                      className="field-input"
+                      value={item.unitPriceMinor}
+                      onChange={(e) => updateItem(item.rfqItemId, { unitPriceMinor: e.target.value })}
+                    />
+                  </label>
+                  <label className="sm:col-span-2">
+                    <span className="mb-1 block text-xs text-text-secondary">Currency</span>
+                    <input
+                      disabled={!isEditable}
+                      placeholder="NGN"
+                      className="field-input"
+                      value={item.currency}
+                      onChange={(e) => updateItem(item.rfqItemId, { currency: e.target.value.toUpperCase() })}
+                    />
+                  </label>
+                  <label className="sm:col-span-3">
+                    <span className="mb-1 block text-xs text-text-secondary">Lead time (days)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={!isEditable}
+                      placeholder="Lead days"
+                      className="field-input"
+                      value={item.leadTimeDays}
+                      onChange={(e) => updateItem(item.rfqItemId, { leadTimeDays: e.target.value })}
+                    />
+                  </label>
+                  <div className="col-span-2 flex items-end sm:col-span-3">
+                    {lineTotal && <p className="text-sm text-text-secondary">Line total: {lineTotal}</p>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
+
+        {responseTotal && (
+          <div className="mt-2 flex justify-end">
+            <p className="text-sm font-medium text-text-primary">Response total: {responseTotal}</p>
+          </div>
+        )}
 
         <textarea
           disabled={!isEditable}
@@ -487,7 +572,9 @@ function RfqDetailContent() {
       </div>
       {rfq.description && <p className="mt-1 text-sm text-text-secondary">{rfq.description}</p>}
       <p className="mt-1 text-xs text-text-secondary">
-        {rfq.viewerRole === "buyer" ? "You are the buyer on this RFQ." : "You are a targeted supplier on this RFQ."}
+        {rfq.viewerRole === "supplier" && rfq.buyerOrganization && <>Requested by {rfq.buyerOrganization.legalName} · </>}
+        {rfq.issuedAt ? `Issued ${new Date(rfq.issuedAt).toLocaleDateString()}` : "Not yet issued"}
+        {rfq.responseDeadline && <> · Responses due {new Date(rfq.responseDeadline).toLocaleDateString()}</>}
       </p>
 
       <section className="card mt-6">

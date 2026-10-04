@@ -328,6 +328,7 @@ export interface RequisitionView {
   sequenceNumber: number;
   buyerOrganizationId: string;
   requestedByUserId: string;
+  requestedByUser: { id: string; name: string; email: string };
   title: string;
   status: RequisitionStatusValue;
   submittedAt: string | null;
@@ -336,6 +337,7 @@ export interface RequisitionView {
   createdAt: string;
   updatedAt: string;
   items: RequisitionItemView[];
+  rfqs: { id: string; status: RfqStatusValue }[];
 }
 
 export interface RfqItemView {
@@ -410,6 +412,8 @@ export interface RfqView {
   reference: string;
   sequenceNumber: number;
   buyerOrganizationId: string;
+  // Supplier-only — the buyer already knows their own organization.
+  buyerOrganization?: { id: string; legalName: string };
   requisitionId: string;
   createdByUserId?: string;
   title: string;

@@ -97,6 +97,13 @@ const RFQ_SUPPLIER_SELECT = {
   id: true,
   sequenceNumber: true,
   buyerOrganizationId: true,
+  // Phase 7 frontend pass: additive select, no schema change. A targeted
+  // supplier previously had no way to see WHICH organization sent the RFQ
+  // at all — only an opaque buyerOrganizationId — found while reviewing
+  // the existing supplier-facing detail page, which never rendered any
+  // buyer identity. Legal name only, same minimal shape already used for
+  // supplierOrganization elsewhere in this file.
+  buyerOrganization: { select: { id: true, legalName: true } },
   requisitionId: true,
   title: true,
   description: true,

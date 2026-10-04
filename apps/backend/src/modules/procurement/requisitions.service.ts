@@ -18,6 +18,18 @@ const REQUISITION_SELECT = {
   sequenceNumber: true,
   buyerOrganizationId: true,
   requestedByUserId: true,
+  // Phase 7 frontend pass: both additive selects on existing relations, no
+  // schema/migration change. requestedByUser lets the detail page show who
+  // within the organization raised it (useful once more than one member
+  // creates requisitions). rfqs lets the detail page link straight to the
+  // resulting RFQ once status is RFQ_CREATED — without this the page had
+  // no way to reach the RFQ it just created, a dead end found while
+  // reviewing the existing detail page. Business rule (not a DB
+  // constraint) keeps this effectively 1:1: createRfq only accepts a
+  // SUBMITTED requisition and immediately transitions it to RFQ_CREATED,
+  // so a second RFQ can never be created from the same requisition.
+  requestedByUser: { select: { id: true, name: true, email: true } },
+  rfqs: { select: { id: true, status: true } },
   title: true,
   status: true,
   submittedAt: true,
