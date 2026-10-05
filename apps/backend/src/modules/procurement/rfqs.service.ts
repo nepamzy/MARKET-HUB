@@ -130,7 +130,10 @@ const RFQ_LIST_SELECT = {
   _count: { select: { targets: true, responses: true } },
 } as const;
 
-function formatRfqReference(sequenceNumber: number): string {
+// Exported for negotiations.service.ts, which needs the identical
+// RFQ-reference formatting to surface the parent RFQ's reference on a
+// negotiation — reused rather than duplicated.
+export function formatRfqReference(sequenceNumber: number): string {
   return `RFQ-${String(sequenceNumber).padStart(6, "0")}`;
 }
 
@@ -498,6 +501,12 @@ export async function getRfqComparison(organizationId: string, rfqId: string) {
         where: { status: { in: ["SUBMITTED", "WITHDRAWN"] as ("SUBMITTED" | "WITHDRAWN")[] } },
         select: COMPARISON_RESPONSE_SELECT,
       },
+      // Phase 8 frontend pass: additive select, no schema change. Once an
+      // RFQ is AWARDED, the comparison view previously had no way to tell
+      // the buyer WHICH response won — only the RFQ's own AWARDED badge,
+      // with every response still rendered identically. Reuses the same
+      // AWARD_SELECT already exposed on RFQ_BUYER_SELECT.
+      award: { select: AWARD_SELECT },
     },
   });
 

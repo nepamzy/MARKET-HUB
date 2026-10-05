@@ -3,7 +3,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
-import { getMembershipRole } from "./rfqs.service";
+import { formatRfqReference, getMembershipRole } from "./rfqs.service";
 
 const NEGOTIATION_EVENT_ITEM_SELECT = {
   id: true,
@@ -37,6 +37,16 @@ const NEGOTIATION_SELECT = {
   createdAt: true,
   updatedAt: true,
   events: { select: NEGOTIATION_EVENT_SELECT, orderBy: { createdAt: "asc" } },
+  // Phase 8 frontend pass: additive selects, no schema change. The
+  // negotiation detail page previously showed no RFQ reference/title, no
+  // item names (only opaque rfqItemId values inside each event), and no
+  // counterparty organization name — a viewer had no way to tell which
+  // RFQ, item(s), or organization a negotiation concerned without manually
+  // cross-referencing IDs elsewhere. All three relations already exist on
+  // the Negotiation model; this only adds minimal selects on them.
+  rfq: { select: { id: true, sequenceNumber: true, title: true, items: { select: { id: true, itemName: true, unit: true } } } },
+  buyerOrganization: { select: { id: true, legalName: true } },
+  supplierOrganization: { select: { id: true, legalName: true } },
 } as const;
 
 /**
@@ -50,6 +60,10 @@ const NEGOTIATION_STATUS_TRANSITIONS: Record<NegotiationStatus, NegotiationStatu
   ACCEPTED: [],
   CLOSED: [],
 };
+
+function withRfqReference<T extends { rfq: { sequenceNumber: number } }>(negotiation: T) {
+  return { ...negotiation, rfq: { ...negotiation.rfq, reference: formatRfqReference(negotiation.rfq.sequenceNumber) } };
+}
 
 /** Every negotiation item must map to a real line on the RFQ being
  * negotiated — never a client-supplied arbitrary reference (same
@@ -180,7 +194,7 @@ export async function createNegotiation(
     metadata: { authorRole: "BUYER" },
   });
 
-  return { ...negotiation, viewerRole: "buyer" as const };
+  return withRfqReference({ ...negotiation, viewerRole: "buyer" as const });
 }
 
 /**
@@ -198,7 +212,7 @@ export async function getNegotiationForViewer(negotiationId: string, viewerUserI
   }
 
   const side = await resolveNegotiationSide(negotiation, viewerUserId, "STAFF");
-  return { ...negotiation, viewerRole: side };
+  return withRfqReference({ ...negotiation, viewerRole: side });
 }
 
 /**

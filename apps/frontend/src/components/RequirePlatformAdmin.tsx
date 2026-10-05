@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { AdminNav } from "./AdminNav";
 import { RequireAuth } from "./RequireAuth";
 
 /**
@@ -32,5 +33,10 @@ function AdminGate({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return <>{children}</>;
+  return (
+    <div>
+      <AdminNav />
+      {children}
+    </div>
+  );
 }

@@ -190,11 +190,35 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
 
       {rfq.award && (
         <section className="card mt-6 border-success/30 bg-success/5">
-          <h2 className="text-sm font-semibold text-success">Awarded</h2>
+          <h2 className="text-sm font-semibold text-success">Awarded — procurement complete</h2>
           <p className="mt-1 text-sm text-text-primary">
-            This RFQ was awarded to {rfq.award.supplierOrganization.legalName}.
+            This RFQ was awarded to <strong>{rfq.award.supplierOrganization.legalName}</strong>.
           </p>
           {rfq.award.reason && <p className="mt-1 text-sm text-text-secondary">Reason: {rfq.award.reason}</p>}
+          <p className="mt-1 text-xs text-text-secondary">Decided {new Date(rfq.award.createdAt).toLocaleString()}.</p>
+
+          {(() => {
+            const winningResponse = rfq.responses?.find((r) => r.id === rfq.award!.responseId);
+            if (!winningResponse) return null;
+            const total = sumByCurrency(winningResponse.items);
+            return (
+              <div className="mt-3 rounded-control border border-success/20 bg-surface p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-text-secondary">Accepted offer</p>
+                <ul className="mt-1 space-y-0.5 text-sm text-text-primary">
+                  {winningResponse.items.map((item) => {
+                    const requested = rfq.items.find((i) => i.id === item.rfqItemId);
+                    return (
+                      <li key={item.id}>
+                        {requested?.itemName ?? item.rfqItemId} — {item.quantity} {item.unit.toLowerCase()} @{" "}
+                        {formatMinorUnits(item.unitPriceMinor, item.currency)}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {total && <p className="mt-1 text-sm font-medium text-text-primary">Total: {total}</p>}
+              </div>
+            );
+          })()}
 
           {poError && (
             <div className="mt-3">
@@ -381,9 +405,28 @@ function SupplierView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise
           </h2>
           <p className="mt-1 text-sm text-text-secondary">
             {rfq.youWereAwarded
-              ? "The buyer selected your response."
+              ? "The buyer selected your response. This procurement milestone is complete."
               : "The buyer selected another supplier's response for this RFQ."}
           </p>
+          {rfq.youWereAwarded && rfq.response && (
+            <div className="mt-3 rounded-control border border-success/20 bg-surface p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-text-secondary">Your accepted offer</p>
+              <ul className="mt-1 space-y-0.5 text-sm text-text-primary">
+                {rfq.response.items.map((item) => {
+                  const requested = rfq.items.find((i) => i.id === item.rfqItemId);
+                  return (
+                    <li key={item.id}>
+                      {requested?.itemName ?? item.rfqItemId} — {item.quantity} {item.unit.toLowerCase()} @{" "}
+                      {formatMinorUnits(item.unitPriceMinor, item.currency)}
+                    </li>
+                  );
+                })}
+              </ul>
+              {sumByCurrency(rfq.response.items) && (
+                <p className="mt-1 text-sm font-medium text-text-primary">Total: {sumByCurrency(rfq.response.items)}</p>
+              )}
+            </div>
+          )}
           {rfq.youWereAwarded && rfq.purchaseOrder && (
             <Link href={`/purchase-orders/${rfq.purchaseOrder.id}`} className="btn-primary mt-3 inline-flex">
               View purchase order

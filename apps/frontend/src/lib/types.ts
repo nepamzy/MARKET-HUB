@@ -452,6 +452,7 @@ export interface RfqComparisonView {
   status: RfqStatusValue;
   items: RfqItemView[];
   responses: ComparisonResponseView[];
+  award: AwardView | null;
 }
 
 export interface NegotiationEventItemView {
@@ -487,6 +488,15 @@ export interface NegotiationView {
   updatedAt: string;
   events: NegotiationEventView[];
   viewerRole: "buyer" | "supplier";
+  rfq: {
+    id: string;
+    sequenceNumber: number;
+    reference: string;
+    title: string;
+    items: { id: string; itemName: string; unit: ProductUnitValue }[];
+  };
+  buyerOrganization: { id: string; legalName: string };
+  supplierOrganization: { id: string; legalName: string };
 }
 
 // --- Phase 9: Purchase Order & Procurement Award Execution Foundation ---
@@ -548,4 +558,28 @@ export interface PurchaseOrderView {
   updatedAt: string;
   items: PurchaseOrderItemView[];
   viewerRole: "buyer" | "supplier";
+}
+
+// --- Phase 8 frontend pass, Part B: Master Admin Control Center ---------
+
+export interface AdminStats {
+  organizations: { total: number; byVerification: Record<string, number> };
+  users: { total: number };
+  kyc: { pendingReview: number };
+  directory: { discoverable: number };
+  products: { total: number };
+  orders: { total: number };
+  rfqs: { total: number };
+  purchaseOrders: { total: number };
+}
+
+export interface AdminAuditLogEntry {
+  id: string;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; name: string; email: string } | null;
+  organization: { id: string; legalName: string } | null;
 }

@@ -184,3 +184,95 @@ adminRouter.get("/products", validate(paginationSchema, "query"), async (req, re
     next(err);
   }
 });
+
+// Master Admin Control Center dashboard (Part B of the Phase 8 frontend
+// pass). Counts only — no order/RFQ/PO content, no buyer/seller identity,
+// nothing beyond what every other admin list endpoint already exposes as
+// its own pagination `total`. The three new counts (orders, RFQs, purchase
+// orders) are the one genuinely new read this adds: there was previously no
+// way to answer "how much commerce/procurement activity exists on the
+// platform" at all, and PHASE_0_MASTER_BLUEPRINT.md §19 names the
+// Command Center as the first missing Master Admin section, gated only on
+// its underlying domains existing — which, as of Phase 6-9, they now do.
+// Browsing the underlying records themselves (not just counting them) is
+// deliberately NOT built here: unlike a count, a full order/RFQ/PO listing
+// would expose cross-organization commercial content (prices, buyer/seller
+// identity, negotiated terms) that no organization consented to share with
+// a party outside the deal — a materially bigger decision than this
+// frontend pass is authorized to make unilaterally. Flagged as an open
+// decision in the phase report rather than silently built.
+adminRouter.get("/stats", async (_req, res, next) => {
+  try {
+    const [organizationsTotal, organizationsByVerification, usersTotal, kycPending, directoryDiscoverable, productsTotal, ordersTotal, rfqsTotal, purchaseOrdersTotal] =
+      await Promise.all([
+        prisma.organization.count(),
+        prisma.organization.groupBy({ by: ["verificationStatus"], _count: true }),
+        prisma.user.count(),
+        prisma.kYCSubmission.count({ where: { status: "SUBMITTED" } }),
+        prisma.supplierProfile.count({ where: { isActive: true, isDiscoverable: true } }),
+        prisma.product.count(),
+        prisma.order.count(),
+        prisma.rfq.count(),
+        prisma.purchaseOrder.count(),
+      ]);
+    res.status(200).json({
+      organizations: {
+        total: organizationsTotal,
+        byVerification: Object.fromEntries(organizationsByVerification.map((g) => [g.verificationStatus, g._count])),
+      },
+      users: { total: usersTotal },
+      kyc: { pendingReview: kycPending },
+      directory: { discoverable: directoryDiscoverable },
+      products: { total: productsTotal },
+      orders: { total: ordersTotal },
+      rfqs: { total: rfqsTotal },
+      purchaseOrders: { total: purchaseOrdersTotal },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Audit log browser (Phase 8 Part B). AuditLog (EXISTS since Phase A) is
+// platform-wide security trail by design — see §21 of the master
+// blueprint ("AuditLog is for platform security review") — unlike every
+// other admin read in this file, it carries no per-organization business
+// content (no prices, no commercial terms), only who-did-what-to-what and
+// when, so exposing it platform-wide to PLATFORM_ADMIN is consistent with
+// its original design intent, not a new privacy boundary. It has been
+// written to since Phase A but had no admin UI/endpoint to read it until
+// now — the one concrete gap §19 names for this section.
+const auditLogQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  action: z.string().optional(),
+});
+
+adminRouter.get("/audit-log", validate(auditLogQuerySchema, "query"), async (req, res, next) => {
+  try {
+    const { page, pageSize, action } = req.query as unknown as { page: number; pageSize: number; action?: string };
+    const where = action ? { action } : {};
+    const [entries, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        select: {
+          id: true,
+          action: true,
+          targetType: true,
+          targetId: true,
+          metadata: true,
+          createdAt: true,
+          actor: { select: { id: true, name: true, email: true } },
+          organization: { select: { id: true, legalName: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.auditLog.count({ where }),
+    ]);
+    res.status(200).json({ entries, page, pageSize, total });
+  } catch (err) {
+    next(err);
+  }
+});

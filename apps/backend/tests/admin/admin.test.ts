@@ -73,4 +73,75 @@ describe("Platform admin boundary", () => {
 
     expect(res.status).toBe(400);
   });
+
+  it("blocks a non-admin from the dashboard stats and audit log endpoints", async () => {
+    const app = testApp();
+    const { accessToken } = await registerAndLogin(app);
+
+    const statsRes = await request(app).get("/api/admin/stats").set("Authorization", `Bearer ${accessToken}`);
+    expect(statsRes.status).toBe(403);
+
+    const auditRes = await request(app).get("/api/admin/audit-log").set("Authorization", `Bearer ${accessToken}`);
+    expect(auditRes.status).toBe(403);
+  });
+
+  it("lets a PLATFORM_ADMIN read real, non-fabricated platform-wide counts", async () => {
+    const app = testApp();
+    const owner = await registerAndLogin(app);
+    await request(app)
+      .post("/api/organizations")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ legalName: "Stats Co", businessType: "RETAILER" });
+
+    const admin = await registerAndLogin(app);
+    await promoteToPlatformAdmin(admin.userId);
+
+    const res = await request(app).get("/api/admin/stats").set("Authorization", `Bearer ${admin.accessToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.organizations.total).toBeGreaterThanOrEqual(1);
+    expect(typeof res.body.users.total).toBe("number");
+    expect(typeof res.body.kyc.pendingReview).toBe("number");
+    expect(typeof res.body.directory.discoverable).toBe("number");
+    expect(typeof res.body.products.total).toBe("number");
+    expect(typeof res.body.orders.total).toBe("number");
+    expect(typeof res.body.rfqs.total).toBe("number");
+    expect(typeof res.body.purchaseOrders.total).toBe("number");
+  });
+
+  it("lets a PLATFORM_ADMIN browse the platform audit log, reflecting a real recorded action", async () => {
+    const app = testApp();
+    const owner = await registerAndLogin(app);
+    const orgRes = await request(app)
+      .post("/api/organizations")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ legalName: "Audited Co", businessType: "RETAILER" });
+
+    const admin = await registerAndLogin(app);
+    await promoteToPlatformAdmin(admin.userId);
+    await request(app)
+      .patch(`/api/admin/organizations/${orgRes.body.organization.id}/verification`)
+      .set("Authorization", `Bearer ${admin.accessToken}`)
+      .send({ status: "VERIFIED" });
+
+    const res = await request(app).get("/api/admin/audit-log").set("Authorization", `Bearer ${admin.accessToken}`);
+    expect(res.status).toBe(200);
+    const entry = res.body.entries.find((e: { action: string; targetId: string }) => e.action === "ORGANIZATION_VERIFICATION_UPDATED" && e.targetId === orgRes.body.organization.id);
+    expect(entry).toBeDefined();
+    expect(entry.actor.id).toBe(admin.userId);
+  });
+
+  it("filters the audit log by action", async () => {
+    const app = testApp();
+    const admin = await registerAndLogin(app);
+    await promoteToPlatformAdmin(admin.userId);
+
+    const res = await request(app)
+      .get("/api/admin/audit-log")
+      .query({ action: "ORGANIZATION_VERIFICATION_UPDATED" })
+      .set("Authorization", `Bearer ${admin.accessToken}`);
+    expect(res.status).toBe(200);
+    for (const entry of res.body.entries) {
+      expect(entry.action).toBe("ORGANIZATION_VERIFICATION_UPDATED");
+    }
+  });
 });
