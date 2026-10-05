@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { FormAlert } from "@/components/FormAlert";
@@ -49,7 +49,6 @@ function sumByCurrency(rows: { quantity: number; unitPriceMinor: number; currenc
 
 function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<void> }) {
   const authedFetch = useAuthedFetch();
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showAddTarget, setShowAddTarget] = useState(false);
@@ -57,8 +56,10 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
   const [results, setResults] = useState<DirectoryListing[]>([]);
   const [creatingPo, setCreatingPo] = useState(false);
   const [poError, setPoError] = useState<string | null>(null);
+  const [createdPoId, setCreatedPoId] = useState<string | null>(null);
 
   async function createPurchaseOrder() {
+    if (creatingPo || createdPoId) return;
     setPoError(null);
     setCreatingPo(true);
     try {
@@ -66,9 +67,18 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
         method: "POST",
         body: JSON.stringify({}),
       });
-      router.push(`/purchase-orders/${po.id}`);
+      setCreatedPoId(po.id);
+      await onReload();
     } catch (err) {
-      setPoError(err instanceof ApiError ? err.message : "Could not create a purchase order.");
+      if (err instanceof ApiError && err.status === 409) {
+        // Duplicate or no-longer-valid award: refresh so an existing PO's
+        // link appears, and show the backend's reason instead of a success.
+        setPoError(err.message);
+        await onReload();
+      } else {
+        setPoError(err instanceof ApiError ? err.message : "Could not create a purchase order.");
+      }
+    } finally {
       setCreatingPo(false);
     }
   }
@@ -226,9 +236,15 @@ function BuyerView({ rfq, onReload }: { rfq: RfqView; onReload: () => Promise<vo
             </div>
           )}
 
+          {createdPoId && (
+            <div role="status" className="mt-3 rounded-control border border-success/30 bg-surface p-3 text-sm text-success">
+              Purchase order created. It starts as a draft: submit it for approval from its page.
+            </div>
+          )}
+
           <div className="mt-3">
-            {rfq.purchaseOrder ? (
-              <Link href={`/purchase-orders/${rfq.purchaseOrder.id}`} className="btn-primary">
+            {rfq.purchaseOrder || createdPoId ? (
+              <Link href={`/purchase-orders/${createdPoId ?? rfq.purchaseOrder!.id}`} className="btn-primary">
                 View purchase order
               </Link>
             ) : (

@@ -521,6 +521,9 @@ export interface PurchaseOrderListEntry {
   id: string;
   sequenceNumber: number;
   reference: string;
+  rfqId: string;
+  rfqReference: string;
+  rfqTitle: string;
   status: PurchaseOrderStatusValue;
   currency: string;
   totalMinor: number;
@@ -537,6 +540,8 @@ export interface PurchaseOrderView {
   reference: string;
   awardId: string;
   rfqId: string;
+  rfqReference: string;
+  rfqTitle: string;
   responseId: string;
   buyerOrganizationId: string;
   buyerOrganizationName: string;

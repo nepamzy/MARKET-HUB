@@ -304,6 +304,29 @@ describe("Purchase Order — state machine", () => {
   });
 });
 
+describe("Purchase Order — related RFQ context (frontend contract)", () => {
+  it("exposes the parent RFQ's id, reference and title on both detail and list responses", async () => {
+    const app = testApp();
+    const { buyer, supplier, rfqId } = await createAwardedRfq(app);
+    const po = await createPo(app, buyer, rfqId);
+
+    const detail = await request(app).get(`/api/purchase-orders/${po.id}`).set("Authorization", `Bearer ${supplier.owner.accessToken}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.rfqId).toBe(rfqId);
+    expect(detail.body.rfqReference).toMatch(/^RFQ-\d{6}$/);
+    expect(typeof detail.body.rfqTitle).toBe("string");
+    expect(detail.body.rfq).toBeUndefined();
+
+    const list = await request(app)
+      .get(`/api/organizations/${buyer.organizationId}/purchase-orders`)
+      .set("Authorization", `Bearer ${buyer.owner.accessToken}`);
+    expect(list.status).toBe(200);
+    expect(list.body.purchaseOrders[0].rfqId).toBe(rfqId);
+    expect(list.body.purchaseOrders[0].rfqReference).toBe(detail.body.rfqReference);
+    expect(list.body.purchaseOrders[0].rfqTitle).toBe(detail.body.rfqTitle);
+  });
+});
+
 describe("Purchase Order — authorization & privacy", () => {
   it("lets the buyer (STAFF+) view the PO", async () => {
     const app = testApp();

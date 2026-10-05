@@ -9,7 +9,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
-import { getMembershipRole } from "./rfqs.service";
+import { formatRfqReference, getMembershipRole } from "./rfqs.service";
 
 const PO_ITEM_SELECT = {
   id: true,
@@ -30,6 +30,7 @@ const PO_SELECT = {
   sequenceNumber: true,
   awardId: true,
   rfqId: true,
+  rfq: { select: { sequenceNumber: true, title: true } },
   responseId: true,
   buyerOrganizationId: true,
   buyerOrganizationName: true,
@@ -55,6 +56,8 @@ const PO_SELECT = {
 const PO_LIST_SELECT = {
   id: true,
   sequenceNumber: true,
+  rfqId: true,
+  rfq: { select: { sequenceNumber: true, title: true } },
   status: true,
   currency: true,
   totalMinor: true,
@@ -69,8 +72,17 @@ function formatPoReference(sequenceNumber: number): string {
   return `PO-${String(sequenceNumber).padStart(6, "0")}`;
 }
 
-function withPoReference<T extends { sequenceNumber: number }>(po: T) {
-  return { ...po, reference: formatPoReference(po.sequenceNumber) };
+/** Adds the PO's own reference plus the parent RFQ's reference/title,
+ * flattened from the selected `rfq` relation (frontend display only:
+ * select-only addition, no schema or business-rule change). */
+function withPoReference<T extends { sequenceNumber: number; rfq: { sequenceNumber: number; title: string } }>(po: T) {
+  const { rfq, ...rest } = po;
+  return {
+    ...rest,
+    reference: formatPoReference(po.sequenceNumber),
+    rfqReference: formatRfqReference(rfq.sequenceNumber),
+    rfqTitle: rfq.title,
+  };
 }
 
 /**
