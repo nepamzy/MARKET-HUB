@@ -11,6 +11,12 @@ async function resetDatabase(): Promise<void> {
     prisma.auditLog.deleteMany(),
     prisma.refreshToken.deleteMany(),
     prisma.organizationMembership.deleteMany(),
+    // Phase 10 — Payment uses onDelete:Restrict on its Order/User
+    // relations, so it must be cleared before both. PaymentWebhookEvent
+    // uses onDelete:SetNull on Payment, so order between the two doesn't
+    // strictly matter, but deleting it first keeps the intent clear.
+    prisma.paymentWebhookEvent.deleteMany(),
+    prisma.payment.deleteMany(),
     // Order/OrderItem use onDelete:Restrict on their User/Organization
     // relations (Phase 6 — historical records must never silently vanish
     // via cascade), so unlike every other domain table here, they can't

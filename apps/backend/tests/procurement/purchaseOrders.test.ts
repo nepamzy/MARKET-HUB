@@ -471,15 +471,21 @@ describe("Purchase Order — does not implement out-of-scope Phase 9 features", 
     const app = testApp();
     const { buyer, rfqId } = await createAwardedRfq(app);
     const ordersBefore = await prisma.order.count();
+    // Payment exists as a model from Phase 10 onward (created only via its
+    // own explicit initiate-for-an-order endpoint, never as a side effect
+    // of creating a PurchaseOrder) — count it rather than asserting the
+    // model is absent, which stopped being true once Phase 10 landed.
+    // Shipment/Delivery still don't exist in the schema at all — their
+    // absence from the Prisma client itself remains the strongest possible
+    // assertion that neither was introduced.
+    const paymentsBefore = await prisma.payment.count();
 
     await createPo(app, buyer, rfqId);
 
     const ordersAfter = await prisma.order.count();
+    const paymentsAfter = await prisma.payment.count();
     expect(ordersAfter).toBe(ordersBefore);
-    // No Payment/Shipment/Delivery model exists in the schema at all this
-    // phase — their absence from the Prisma client itself is the strongest
-    // possible assertion that none was introduced.
-    expect((prisma as unknown as Record<string, unknown>).payment).toBeUndefined();
+    expect(paymentsAfter).toBe(paymentsBefore);
     expect((prisma as unknown as Record<string, unknown>).shipment).toBeUndefined();
     expect((prisma as unknown as Record<string, unknown>).delivery).toBeUndefined();
   });

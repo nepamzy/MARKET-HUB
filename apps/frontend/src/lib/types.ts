@@ -303,6 +303,62 @@ export interface OrderView {
   viewerSellerRole?: MembershipRole | null;
 }
 
+// --- Phase 10: Payments -------------------------------------------------
+
+export type PaymentStatusValue = "PENDING" | "PROCESSING" | "SUCCESS" | "FAILED";
+export type PaymentProviderValue = "PAYSTACK";
+
+export interface PaymentView {
+  id: string;
+  orderId: string;
+  buyerUserId: string;
+  provider: PaymentProviderValue;
+  status: PaymentStatusValue;
+  amountMinor: number;
+  currency: string;
+  reference: string;
+  providerTransactionId: string | null;
+  authorizationUrl: string | null;
+  failureReason: string | null;
+  initializedAt: string;
+  verifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// --- Phase 11: Inventory foundation --------------------------------------
+
+export type StockMovementTypeValue = "RECEIPT" | "SALE" | "RESERVATION" | "RELEASE" | "ADJUSTMENT" | "RETURN";
+
+export interface InventoryRow {
+  id: string;
+  organizationId: string;
+  productId: string;
+  onHand: number;
+  reserved: number;
+  available: number;
+  createdAt: string;
+  updatedAt: string;
+  product: { id: string; name: string; sku: string | null; unit: ProductUnitValue };
+}
+
+export interface ProductInventoryDetail {
+  tracked: boolean;
+  product: { id: string; name: string };
+  inventory: InventoryRow | null;
+}
+
+export interface StockMovementView {
+  id: string;
+  type: StockMovementTypeValue;
+  quantity: number;
+  orderId: string | null;
+  actorUserId: string | null;
+  actorUser: { id: string; name: string } | null;
+  reason: string | null;
+  createdAt: string;
+}
+
 // --- Phase 7: Procurement Engine — Requisition & RFQ foundation --------
 
 export type RequisitionStatusValue = "DRAFT" | "SUBMITTED" | "RFQ_CREATED" | "CANCELLED";
@@ -576,6 +632,8 @@ export interface AdminStats {
   orders: { total: number };
   rfqs: { total: number };
   purchaseOrders: { total: number };
+  payments: { total: number; byStatus: Record<string, number> };
+  inventory: { total: number };
 }
 
 export interface AdminAuditLogEntry {

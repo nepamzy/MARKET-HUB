@@ -19,6 +19,19 @@ const envSchema = z.object({
   SEED_ADMIN_EMAIL: z.string().email().optional().or(z.literal("")),
   SEED_ADMIN_PASSWORD: z.string().optional().or(z.literal("")),
   SEED_ADMIN_NAME: z.string().optional().or(z.literal("")),
+  // Phase 10 — Payments. Deliberately optional: a dev/CI environment
+  // without real Paystack credentials must still boot and run every other
+  // feature. payments.service.ts/paystack.provider.ts fail loudly with a
+  // clear "payment provider not configured" error at the moment a payment
+  // is actually initiated or a webhook actually arrives if these are
+  // unset — they never fall back to a fake success (Rule 5/Rule 20).
+  // Never logged, never sent to the frontend (Rule 6).
+  PAYSTACK_SECRET_KEY: z.string().min(1).optional(),
+  // Where Paystack redirects the buyer's browser after the hosted checkout
+  // page. This is a UX redirect only — it is never treated as proof of
+  // payment; only verify()/the signed webhook are (Rule: success must
+  // never be determined from frontend redirect alone).
+  PAYSTACK_CALLBACK_URL: z.string().url().optional(),
 });
 
 function loadEnv() {

@@ -603,3 +603,27 @@ export const purchaseOrderListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type PurchaseOrderListQuery = z.infer<typeof purchaseOrderListQuerySchema>;
+
+// --- Phase 11: Inventory foundation --------------------------------------
+
+/**
+ * A manual stock correction (Phase 11) — the only inventory write a human
+ * makes directly (reservation/release/sale all happen as a side effect of
+ * checkout/payment/cancellation, never through this). `quantityChange` is
+ * signed and may never be zero (a zero-change "adjustment" isn't one);
+ * `reason` is always required — no arbitrary unaudited edits (Rule). This
+ * same call also initializes tracking for a Product that has no Inventory
+ * row yet (onHand starts at 0, then this adjustment applies), so there is
+ * no separate "enable tracking" endpoint.
+ */
+export const adjustInventorySchema = z.object({
+  quantityChange: z.number().int().refine((n) => n !== 0, "quantityChange must not be zero"),
+  reason: z.string().min(1).max(500),
+});
+export type AdjustInventoryInput = z.infer<typeof adjustInventorySchema>;
+
+export const stockMovementListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+export type StockMovementListQuery = z.infer<typeof stockMovementListQuerySchema>;

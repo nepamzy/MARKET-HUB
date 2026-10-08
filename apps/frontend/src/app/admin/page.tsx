@@ -52,6 +52,8 @@ function DashboardContent() {
             <StatTile label="Discoverable suppliers" value={stats.directory.discoverable} href="/admin/directory" />
             <StatTile label="Products" value={stats.products.total} href="/admin/products" />
             <StatTile label="Orders" value={stats.orders.total} href="/admin/orders" />
+            <StatTile label="Payments" value={stats.payments.total} href="/admin/payments" />
+            <StatTile label="Products tracked" value={stats.inventory.total} href="/admin/inventory" />
             <StatTile label="RFQs" value={stats.rfqs.total} href="/admin/rfqs" />
             <StatTile label="Purchase orders" value={stats.purchaseOrders.total} href="/admin/purchase-orders" />
           </div>

@@ -1,4 +1,5 @@
 import type { PriceTier, ProductUnit } from "@market-hub/shared";
+import { assertStockAvailable } from "../modules/inventory/inventory.service";
 import { AppError } from "./errors";
 import { prisma } from "./prisma";
 
@@ -86,6 +87,13 @@ export async function resolvePurchaseTerms(productId: string, quantity: number):
   if (!priceRow) {
     throw AppError.badRequest("No price is available for this product at the requested quantity");
   }
+
+  // Phase 11 — advisory only (a product with no Inventory row is
+  // untracked and always passes). The authoritative guard that actually
+  // prevents overselling is the transactional reservation inside
+  // checkout() itself; this just gives an early, specific error at
+  // cart-add/checkout time instead of a generic conflict.
+  await assertStockAvailable(product.id, product.name, quantity);
 
   return {
     productId: product.id,

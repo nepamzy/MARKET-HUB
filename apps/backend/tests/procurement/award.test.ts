@@ -120,8 +120,12 @@ describe("Award", () => {
     // PurchaseOrder exists as a model from Phase 9 onward (created only via
     // its own explicit create-from-Award endpoint, never as an award side
     // effect) — count it rather than asserting the model is absent, which
-    // stopped being true once Phase 9 landed.
+    // stopped being true once Phase 9 landed. Payment exists as a model
+    // from Phase 10 onward (created only via its own explicit
+    // initiate-for-an-order endpoint, never as an award side effect) —
+    // same reasoning, same pattern.
     const purchaseOrdersBefore = await prisma.purchaseOrder.count();
+    const paymentsBefore = await prisma.payment.count();
 
     await request(app)
       .post(`/api/organizations/${buyer.organizationId}/rfqs/${rfqId}/award`)
@@ -130,12 +134,10 @@ describe("Award", () => {
 
     const ordersAfter = await prisma.order.count();
     const purchaseOrdersAfter = await prisma.purchaseOrder.count();
+    const paymentsAfter = await prisma.payment.count();
     expect(ordersAfter).toBe(ordersBefore);
     expect(purchaseOrdersAfter).toBe(purchaseOrdersBefore);
-    // No Payment model exists in the schema at all this phase — its absence
-    // from the Prisma client itself is the strongest possible assertion
-    // that none was introduced.
-    expect((prisma as unknown as Record<string, unknown>).payment).toBeUndefined();
+    expect(paymentsAfter).toBe(paymentsBefore);
   });
 
   it("once AWARDED, further negotiation actions on the RFQ are rejected", async () => {

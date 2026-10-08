@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
 import { formatMinorUnits } from "@/lib/money";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
-import type { OrderStatusValue, OrderView } from "@/lib/types";
+import type { OrderStatusValue, OrderView, PaymentView } from "@/lib/types";
 
 const LIFECYCLE_STAGES: { status: OrderStatusValue; label: string }[] = [
   { status: "PENDING", label: "Order placed" },
@@ -71,17 +71,143 @@ function OrderLifecycle({ order }: { order: OrderView }) {
   );
 }
 
+/**
+ * Buyer-only (payments are always initiated/viewed by the buyer who placed
+ * the order — Rule 6/7) panel for the Phase 10 payment experience: shows
+ * the most relevant payment attempt, offers "Pay now"/"Try again" where
+ * valid, and never shows a Pay button once a SUCCESS payment exists. A
+ * successful redirect back from Paystack always lands on
+ * /payments/callback (see that page), which re-verifies server-side
+ * before reporting anything — this panel never infers success from the
+ * frontend alone.
+ */
+function PaymentPanel({
+  order,
+  payments,
+  onPaymentsChange,
+}: {
+  order: OrderView;
+  payments: PaymentView[];
+  onPaymentsChange: (payments: PaymentView[]) => void;
+}) {
+  const authedFetch = useAuthedFetch();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (order.viewerRole !== "buyer") return null;
+
+  const successPayment = payments.find((p) => p.status === "SUCCESS");
+  const latestPayment = payments[0] ?? null;
+  const canPay = order.status !== "CANCELLED" && !successPayment;
+
+  async function startPayment() {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await authedFetch<{ payment: PaymentView }>(`/orders/${order.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (res.payment.authorizationUrl) {
+        window.location.href = res.payment.authorizationUrl;
+        return;
+      }
+      onPaymentsChange([res.payment, ...payments]);
+      setError("Payment was initiated but no checkout page was returned. Please try again.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not start a payment for this order.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkStatus(reference: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await authedFetch<{ payment: PaymentView }>(`/payments/${reference}/verify`, { method: "POST" });
+      onPaymentsChange(payments.map((p) => (p.reference === reference ? res.payment : p)));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not check this payment's status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2 className="text-lg font-semibold text-text-primary">Payment</h2>
+
+      {error && (
+        <div className="mt-3">
+          <FormAlert>{error}</FormAlert>
+        </div>
+      )}
+
+      {successPayment && (
+        <div className="mt-3">
+          <FormAlert tone="success">
+            Paid in full — {formatMinorUnits(successPayment.amountMinor, successPayment.currency)} on{" "}
+            {successPayment.verifiedAt ? new Date(successPayment.verifiedAt).toLocaleString() : "—"}. Reference{" "}
+            {successPayment.reference}.
+          </FormAlert>
+        </div>
+      )}
+
+      {!successPayment && latestPayment && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-text-secondary">
+          <span>Last attempt:</span>
+          <StatusBadge status={latestPayment.status} />
+          <span>{formatMinorUnits(latestPayment.amountMinor, latestPayment.currency)}</span>
+          <span>· {latestPayment.reference}</span>
+        </div>
+      )}
+      {!successPayment && latestPayment?.status === "FAILED" && latestPayment.failureReason && (
+        <p className="mt-1 text-sm text-danger">{latestPayment.failureReason}</p>
+      )}
+
+      {order.status === "CANCELLED" && !successPayment && (
+        <p className="mt-3 text-sm text-text-secondary">This order was cancelled — it cannot be paid for.</p>
+      )}
+
+      {canPay && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {latestPayment?.authorizationUrl && (latestPayment.status === "PENDING" || latestPayment.status === "PROCESSING") && (
+            <a href={latestPayment.authorizationUrl} className="btn-primary">
+              Continue to payment
+            </a>
+          )}
+          {latestPayment && (latestPayment.status === "PENDING" || latestPayment.status === "PROCESSING") && (
+            <button type="button" disabled={busy} onClick={() => checkStatus(latestPayment.reference)} className="btn-secondary">
+              Check payment status
+            </button>
+          )}
+          <button type="button" disabled={busy} onClick={startPayment} className="btn-primary">
+            {latestPayment ? "Try payment again" : "Pay now"}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function OrderDetailContent() {
   const params = useParams<{ id: string }>();
   const authedFetch = useAuthedFetch();
   const [order, setOrder] = useState<OrderView | null>(null);
+  const [payments, setPayments] = useState<PaymentView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setOrder(await authedFetch<OrderView>(`/orders/${params.id}`));
+      const loadedOrder = await authedFetch<OrderView>(`/orders/${params.id}`);
+      setOrder(loadedOrder);
+      if (loadedOrder.viewerRole === "buyer") {
+        const paymentsRes = await authedFetch<{ payments: PaymentView[] }>(`/orders/${params.id}/payments`);
+        setPayments(paymentsRes.payments);
+      }
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 404
@@ -182,6 +308,8 @@ function OrderDetailContent() {
               </p>
             </div>
           </section>
+
+          <PaymentPanel order={order} payments={payments} onPaymentsChange={setPayments} />
 
           {(canManage || canCancel) && (
             <section className="card">

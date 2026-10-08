@@ -220,3 +220,29 @@ export type NegotiationEventAuthor = (typeof NEGOTIATION_EVENT_AUTHORS)[number];
  */
 export const PURCHASE_ORDER_STATUSES = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "CONFIRMED"] as const;
 export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
+
+/** The only supported payment processor (Phase 10) — see schema.prisma's
+ * PaymentProvider doc comment. */
+export const PAYMENT_PROVIDERS = ["PAYSTACK"] as const;
+export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
+
+/**
+ * Payment lifecycle (Phase 10) — see schema.prisma's PaymentStatus doc
+ * comment for why SUCCESS/FAILED are terminal and a new attempt is a new
+ * Payment row, never a retried one. Transitions are centralized in
+ * payments.service.ts, never a free-text status. Payment success is a
+ * fact about money moving, never about order fulfillment — it does not
+ * imply or require any OrderStatus change.
+ */
+export const PAYMENT_STATUSES = ["PENDING", "PROCESSING", "SUCCESS", "FAILED"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+/**
+ * Every stock-affecting operation (Phase 11) — see schema.prisma's
+ * StockMovementType doc comment for the signed-quantity convention each
+ * type follows, and inventory.service.ts for which ones this phase's code
+ * actually writes (RESERVATION/RELEASE/SALE/ADJUSTMENT) versus which are
+ * modelled only for a future receiving/returns phase (RECEIPT/RETURN).
+ */
+export const STOCK_MOVEMENT_TYPES = ["RECEIPT", "SALE", "RESERVATION", "RELEASE", "ADJUSTMENT", "RETURN"] as const;
+export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];

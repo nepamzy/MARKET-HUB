@@ -12,9 +12,11 @@ import { createAuthRouter } from "./modules/auth/auth.routes";
 import { cartRouter } from "./modules/cart/cart.routes";
 import { healthRouter } from "./modules/health/health.routes";
 import { createPublicInvitesRouter, organizationInvitationsRouter } from "./modules/invitations/invitations.routes";
+import { organizationInventoryRouter } from "./modules/inventory/inventory.routes";
 import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
 import { checkoutRouter, organizationOrdersRouter, ordersRouter } from "./modules/orders/orders.routes";
+import { orderPaymentsRouter, paymentsRouter, paymentsWebhookRouter } from "./modules/payments/payments.routes";
 import { categoriesRouter, organizationProductsRouter, publicProductsRouter } from "./modules/products/products.routes";
 import { negotiationDetailRouter, organizationNegotiationsRouter } from "./modules/procurement/negotiations.routes";
 import {
@@ -57,6 +59,13 @@ export function createApp(): Express {
       credentials: true,
     })
   );
+
+  // Mounted BEFORE the global express.json() parser below: webhook
+  // signature verification needs the exact raw bytes Paystack signed, and
+  // the global JSON parser would otherwise consume the request stream
+  // and hand this router an already-parsed (and unsignable) object.
+  app.use("/api/payments/webhook", paymentsWebhookRouter);
+
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
 
@@ -68,6 +77,7 @@ export function createApp(): Express {
   app.use("/api/organizations", organizationOnboardingRouter);
   app.use("/api/organizations", organizationSupplierRouter);
   app.use("/api/organizations", organizationProductsRouter);
+  app.use("/api/organizations", organizationInventoryRouter);
   app.use("/api/organizations", organizationOrdersRouter);
   app.use("/api/organizations", organizationRequisitionsRouter);
   app.use("/api/organizations", organizationRfqsRouter);
@@ -86,6 +96,8 @@ export function createApp(): Express {
   app.use("/api/cart", cartRouter);
   app.use("/api/checkout", checkoutRouter);
   app.use("/api/orders", ordersRouter);
+  app.use("/api/orders", orderPaymentsRouter);
+  app.use("/api/payments", paymentsRouter);
   app.use("/api/admin", adminRouter);
 
   app.use(notFoundHandler);

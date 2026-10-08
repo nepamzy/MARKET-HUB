@@ -12,6 +12,8 @@ const ADMIN_NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/admin/suppliers", label: "Suppliers" },
   { href: "/admin/products", label: "Products" },
   { href: "/admin/orders", label: "Orders" },
+  { href: "/admin/payments", label: "Payments" },
+  { href: "/admin/inventory", label: "Inventory" },
   { href: "/admin/procurement", label: "Procurement" },
   { href: "/admin/rfqs", label: "RFQs" },
   { href: "/admin/purchase-orders", label: "Purchase orders" },

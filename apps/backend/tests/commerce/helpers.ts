@@ -60,3 +60,31 @@ export async function createSellableProduct(
 
   return productId;
 }
+
+/**
+ * Creates one real Order via the real checkout flow (seller + product +
+ * cart + checkout) for a fresh buyer, so Phase 10 payment tests attach to
+ * a genuine Order rather than an inserted fixture row.
+ */
+export async function createOrderForNewBuyer(
+  app: Express,
+  opts: { unitPriceMinor?: number; currency?: string; quantity?: number } = {}
+) {
+  const seller = await createSeller(app);
+  const productId = await createSellableProduct(app, seller.owner.accessToken, seller.organizationId, {
+    unitPriceMinor: opts.unitPriceMinor ?? 2500,
+    currency: opts.currency ?? "NGN",
+  });
+  const buyer = await registerAndLogin(app);
+  await request(app)
+    .post("/api/cart/items")
+    .set("Authorization", `Bearer ${buyer.accessToken}`)
+    .send({ productId, quantity: opts.quantity ?? 2 });
+
+  const checkoutRes = await request(app).post("/api/checkout").set("Authorization", `Bearer ${buyer.accessToken}`);
+  if (checkoutRes.status !== 201) {
+    throw new Error(`Checkout failed in test helper: ${checkoutRes.status} ${JSON.stringify(checkoutRes.body)}`);
+  }
+
+  return { buyer, seller, order: checkoutRes.body.orders[0] as { id: string; totalMinor: number; currency: string } };
+}

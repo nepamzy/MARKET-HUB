@@ -203,18 +203,45 @@ adminRouter.get("/products", validate(paginationSchema, "query"), async (req, re
 // decision in the phase report rather than silently built.
 adminRouter.get("/stats", async (_req, res, next) => {
   try {
-    const [organizationsTotal, organizationsByVerification, usersTotal, kycPending, directoryDiscoverable, productsTotal, ordersTotal, rfqsTotal, purchaseOrdersTotal] =
-      await Promise.all([
-        prisma.organization.count(),
-        prisma.organization.groupBy({ by: ["verificationStatus"], _count: true }),
-        prisma.user.count(),
-        prisma.kYCSubmission.count({ where: { status: "SUBMITTED" } }),
-        prisma.supplierProfile.count({ where: { isActive: true, isDiscoverable: true } }),
-        prisma.product.count(),
-        prisma.order.count(),
-        prisma.rfq.count(),
-        prisma.purchaseOrder.count(),
-      ]);
+    const [
+      organizationsTotal,
+      organizationsByVerification,
+      usersTotal,
+      kycPending,
+      directoryDiscoverable,
+      productsTotal,
+      ordersTotal,
+      rfqsTotal,
+      purchaseOrdersTotal,
+      paymentsTotal,
+      paymentsByStatus,
+      inventoryTrackedTotal,
+    ] = await Promise.all([
+      prisma.organization.count(),
+      prisma.organization.groupBy({ by: ["verificationStatus"], _count: true }),
+      prisma.user.count(),
+      prisma.kYCSubmission.count({ where: { status: "SUBMITTED" } }),
+      prisma.supplierProfile.count({ where: { isActive: true, isDiscoverable: true } }),
+      prisma.product.count(),
+      prisma.order.count(),
+      prisma.rfq.count(),
+      prisma.purchaseOrder.count(),
+      prisma.payment.count(),
+      // Phase 10 — Payments. A count-by-status breakdown only, never
+      // amounts/references/buyer identity: summing amountMinor here would
+      // be misleading anyway (orders span multiple currencies, and adding
+      // minor units across currencies is meaningless), and per-payment
+      // rows are exactly the cross-organization commercial content this
+      // endpoint has never exposed (same reasoning as orders/rfqs/
+      // purchaseOrders above — Rule 8).
+      prisma.payment.groupBy({ by: ["status"], _count: true }),
+      // Phase 11 — Inventory. How many products are stock-tracked
+      // platform-wide, nothing more: per-product onHand/reserved/available
+      // is exactly the cross-organization commercial content (and, for a
+      // marketplace seller, competitively sensitive operational data) this
+      // endpoint has never exposed — same reasoning as every count above.
+      prisma.inventory.count(),
+    ]);
     res.status(200).json({
       organizations: {
         total: organizationsTotal,
@@ -227,6 +254,11 @@ adminRouter.get("/stats", async (_req, res, next) => {
       orders: { total: ordersTotal },
       rfqs: { total: rfqsTotal },
       purchaseOrders: { total: purchaseOrdersTotal },
+      payments: {
+        total: paymentsTotal,
+        byStatus: Object.fromEntries(paymentsByStatus.map((g) => [g.status, g._count])),
+      },
+      inventory: { total: inventoryTrackedTotal },
     });
   } catch (err) {
     next(err);

@@ -285,6 +285,8 @@ model User {
   purchaseOrdersCreated      PurchaseOrder[]           @relation("PurchaseOrderCreatedBy")
   purchaseOrdersApproved     PurchaseOrder[]           @relation("PurchaseOrderApprovedBy")
   purchaseOrdersConfirmed    PurchaseOrder[]           @relation("PurchaseOrderConfirmedBy")
+  paymentsAsBuyer            Payment[]
+  stockMovementsActed        StockMovement[]
 
   @@map("users")
 }
@@ -349,6 +351,7 @@ model Organization {
   awardsAsSupplier         Award[]
   purchaseOrdersAsBuyer    PurchaseOrder[]           @relation("PurchaseOrderBuyer")
   purchaseOrdersAsSupplier PurchaseOrder[]           @relation("PurchaseOrderSupplier")
+  inventory                Inventory[]
 
   @@index([businessType])
   @@map("organizations")
@@ -371,11 +374,11 @@ model SupplierProfile {
   id               String               @id @default(uuid())
   organizationId   String               @unique
   organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  capabilities     SupplierCapability[]
-  categories       String[]
-  countriesServed  String[]
-  regionsServed    String[]
-  citiesServed     String[]
+  capabilities     SupplierCapability[] @default([])
+  categories       String[]             @default([])
+  countriesServed  String[]             @default([])
+  regionsServed    String[]             @default([])
+  citiesServed     String[]             @default([])
   minimumOrderInfo String?
   // Two independently meaningful flags, not one: isActive is the business's
   // own "we are currently operating" signal; isDiscoverable is the
@@ -437,12 +440,13 @@ model Product {
   isDiscoverable       Boolean       @default(false)
   minimumOrderQuantity Int?
   primaryImageUrl      String?
-  additionalImageUrls  String[]
+  additionalImageUrls  String[]      @default([])
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
   prices             ProductPrice[]
   commercialOffer    CommercialOffer?
+  inventory          Inventory?
   cartItems          CartItem[]
   orderItems         OrderItem[]
   requisitionItems   RequisitionItem[]
@@ -781,7 +785,9 @@ model Order {
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
-  items OrderItem[]
+  items          OrderItem[]
+  payments       Payment[]
+  stockMovements StockMovement[]
 
   @@index([buyerUserId])
   @@index([sellerOrganizationId])
@@ -1252,4 +1258,219 @@ model PurchaseOrderItem {
 
   @@index([purchaseOrderId])
   @@map("purchase_order_items")
+}
+
+// ---------------------------------------------------------------------
+// Phase 10 — Payments
+//
+// A clean payment foundation connecting the existing Phase 6 commerce
+// Order to real payment processing — never a replacement for Order, and
+// never a homemade wallet/escrow (CLAUDE.md Rule 9: settlement goes
+// through Paystack's own main-account/subaccount mechanism, not a balance
+// this application tracks itself). Requisitions, RFQs, supplier
+// responses and Purchase Orders are the separate Phase 7-9 procurement
+// path and are explicitly NOT touched here — only Order gets a Payment.
+// ---------------------------------------------------------------------
+
+/// Only one supported provider at launch (Nigeria-first, per the approved
+/// decision register), but kept as an enum — not a hardcoded assumption
+/// baked into field names or logic — so a second provider is a data value,
+/// not a rewrite. See lib/payments/provider.ts for the abstraction this
+/// enum selects between.
+enum PaymentProvider {
+  PAYSTACK
+}
+
+/// PENDING -> PROCESSING -> SUCCESS/FAILED. PENDING is set the instant a
+/// Payment row is created (initialize has been called, the provider has
+/// handed back a checkout session); PROCESSING is a reconciliation state
+/// for a provider that reports "payment received, still settling" rather
+/// than resolving straight to success/fail (most Paystack card charges
+/// resolve directly to SUCCESS/FAILED on verify, so PROCESSING in
+/// practice covers a webhook that arrives before the payer's browser
+/// redirect, or a provider event explicitly reporting an intermediate
+/// state). Both SUCCESS and FAILED are terminal — a failed attempt is
+/// never silently retried into the same row; the buyer initiates a new
+/// Payment instead, which is why Payment is many-to-one with Order, not
+/// one-to-one (payments.service.ts enforces "at most one SUCCESS payment
+/// per order" as a business rule, not a schema constraint, since FAILED/
+/// PENDING attempts must be allowed to coexist in history).
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+/// One payment attempt against one Order. amountMinor/currency are always
+/// resolved server-side from the Order itself at initialize time (never
+/// client-supplied — Rule 6) and never change afterward, even if the
+/// order's own totals could theoretically be recalculated later; this row
+/// is what was actually attempted/charged, same immutable-snapshot
+/// discipline OrderItem/PurchaseOrderItem already use.
+model Payment {
+  id              String          @id @default(uuid())
+  orderId         String
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  buyerUserId     String
+  buyerUser       User            @relation(fields: [buyerUserId], references: [id], onDelete: Restrict)
+  provider        PaymentProvider
+  status          PaymentStatus   @default(PENDING)
+  amountMinor     Int
+  currency        String
+  // Our own idempotency key, generated at initialize time and sent to the
+  // provider as its transaction reference — lets us recognize a retried
+  // initialize call and a provider webhook/verify response as the same
+  // attempt without depending on the provider assigning an ID first.
+  reference       String          @unique
+  // The provider's own transaction id, known only once verify/webhook
+  // reports it — never trusted as proof of payment by itself (Rule:
+  // browser redirect/raw provider id is not proof; only a signed webhook
+  // or a direct verify call is).
+  providerTransactionId String?   @unique
+  authorizationUrl       String?
+  failureReason          String?
+  initializedAt   DateTime        @default(now())
+  verifiedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  webhookEvents PaymentWebhookEvent[]
+
+  @@index([orderId])
+  @@index([buyerUserId])
+  @@index([status])
+  @@map("payments")
+}
+
+/// Append-only record of every webhook delivery this application has
+/// processed, keyed on a hash of the exact raw request body — a retried
+/// delivery of the identical payload (which is how Paystack retries
+/// webhooks: same body, same signature) hashes identically and is
+/// rejected by the unique constraint before any Payment write happens,
+/// which is what actually makes "a webhook received twice never creates
+/// two successful payments" true under concurrent/duplicate delivery,
+/// not just a status check after the fact. paymentId is nullable because
+/// a webhook can arrive (and must still be recorded + safely ignored, per
+/// the Payment security requirement never to trust unsigned/unmatched
+/// payloads) for a reference this application has no matching Payment
+/// row for.
+model PaymentWebhookEvent {
+  id          String          @id @default(uuid())
+  provider    PaymentProvider
+  eventType   String
+  bodyHash    String          @unique
+  paymentId   String?
+  payment     Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  receivedAt  DateTime        @default(now())
+
+  @@index([paymentId])
+  @@map("payment_webhook_events")
+}
+
+// === Phase 11 — Inventory foundation =======================================
+//
+// A reliable inventory foundation for physical commerce — NOT a warehouse
+// management system and NOT fulfillment. See inventory.service.ts's module
+// doc comment for the full reserve -> consume|release state machine this
+// pairs with (checkout reserves, a successful Payment consumes, an order
+// cancellation releases). Explicitly out of scope here: picking, packing,
+// dispatch, shipment/delivery tracking, and automatic receiving of
+// PurchaseOrders into stock (a PurchaseOrder reaching CONFIRMED does not
+// touch Inventory at all — that belongs to a future receiving phase; this
+// phase only defines the StockMovementType values (RECEIPT/RETURN) a
+// receiving phase will need, without building anything that writes them).
+
+/// Every stock-affecting operation this phase (or a future receiving/
+/// fulfillment phase) can perform, as a closed set — never a free-text
+/// reason. Only RESERVATION, RELEASE, SALE and ADJUSTMENT are ever written
+/// by this phase's own code (see inventory.service.ts); RECEIPT and RETURN
+/// are modelled now so a future receiving/returns phase has a stable type
+/// to write into, without this phase building any caller for them.
+enum StockMovementType {
+  RECEIPT
+  SALE
+  RESERVATION
+  RELEASE
+  ADJUSTMENT
+  RETURN
+}
+
+/// One row per Product an organization has opted into real stock tracking
+/// for — deliberately optional and 1:1, the same "optional companion"
+/// pattern CommercialOffer/SupplierProfile/KYCSubmission already use
+/// alongside their respective parents. This matters here more than
+/// anywhere else those patterns appear: every Product created before this
+/// phase sells today with no quantity limit at all (CommercialOffer.
+/// availability is a manual business-status flag, not a count), so making
+/// Inventory mandatory would silently break checkout for every existing
+/// seller the moment this migrates (Rule 13). A Product with no Inventory
+/// row stays exactly as unlimited/untracked as it is today; a Product WITH
+/// one becomes subject to real onHand/reserved/available accounting and
+/// overselling protection, enforced in resolvePurchaseTerms/checkout.
+///
+/// onHand = physical stock the organization currently holds. reserved =
+/// stock currently committed to open orders that checkout has reserved but
+/// that have not yet been consumed (payment succeeded) or released (order
+/// cancelled). available (onHand - reserved) is deliberately NOT a stored
+/// column — it is always computed from these two, so it can never drift
+/// out of sync with the numbers that actually define it. Both onHand and
+/// reserved only ever change through inventory.service.ts's guarded,
+/// transactional helpers, each paired with an immutable StockMovement row
+/// — never a bare `update()` elsewhere in the codebase.
+model Inventory {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String   @unique
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  onHand         Int      @default(0)
+  reserved       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  movements StockMovement[]
+
+  @@index([organizationId])
+  @@map("inventory")
+}
+
+/// Append-only, immutable audit trail of every onHand/reserved change —
+/// stock is never adjusted without one of these rows being written in the
+/// same transaction. `quantity` is signed; which counter(s) it affects and
+/// in which direction is fixed per `type` (see inventory.service.ts's
+/// APPLY_MOVEMENT table), so replaying a product's movements in order must
+/// always reconstruct its current onHand/reserved exactly:
+///   RESERVATION  reserved += quantity (quantity > 0)
+///   RELEASE      reserved += quantity (quantity < 0)
+///   SALE         onHand += quantity AND reserved += quantity (quantity < 0
+///                — consumes a reservation into a finalized sale in one
+///                step, which is also why it is a single movement type
+///                rather than "release + separate deduction": that would
+///                let the two ever disagree)
+///   ADJUSTMENT   onHand += quantity (either sign; a human correction, with
+///                `reason` required — see inventory.service.ts)
+///   RECEIPT/RETURN onHand += quantity (quantity > 0) — defined for a future
+///                receiving/returns phase; nothing in this phase writes them
+/// orderId is set for RESERVATION/SALE/RELEASE (the order that caused the
+/// movement) and null for RECEIPT/ADJUSTMENT/RETURN (organization-initiated,
+/// not order-driven). actorUserId is null for order-driven movements (the
+/// buyer's checkout/payment caused it, not a staff member acting directly)
+/// and required for ADJUSTMENT (Rule: no arbitrary unaudited edits).
+model StockMovement {
+  id          String            @id @default(uuid())
+  inventoryId String
+  inventory   Inventory         @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  type        StockMovementType
+  quantity    Int
+  orderId     String?
+  order       Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  actorUserId String?
+  actorUser   User?             @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  reason      String?
+  createdAt   DateTime          @default(now())
+
+  @@index([inventoryId])
+  @@index([orderId])
+  @@map("stock_movements")
 }
