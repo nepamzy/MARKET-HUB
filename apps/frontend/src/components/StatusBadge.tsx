@@ -34,6 +34,16 @@ const STYLES: Record<string, string> = {
   APPROVED: "bg-success/10 text-success",
   SUCCESS: "bg-success/10 text-success",
   FAILED: "bg-danger/10 text-danger",
+  READY: "bg-muted/20 text-text-secondary",
+  PACKED: "bg-info/10 text-info",
+  DISPATCHED: "bg-info/10 text-info",
+  EXCEPTION: "bg-danger/10 text-danger",
+  PENDING_PICKUP: "bg-warning/10 text-warning",
+  IN_TRANSIT: "bg-info/10 text-info",
+  DELIVERED: "bg-success/10 text-success",
+  CREATED: "bg-muted/20 text-text-secondary",
+  DRIVER_ASSIGNED: "bg-info/10 text-info",
+  PICKED_UP: "bg-info/10 text-info",
 };
 
 /**

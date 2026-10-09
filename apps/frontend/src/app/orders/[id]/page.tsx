@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError } from "@/lib/api";
 import { formatMinorUnits } from "@/lib/money";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
-import type { OrderStatusValue, OrderView, PaymentView } from "@/lib/types";
+import type { FulfillmentView, OrderStatusValue, OrderView, PaymentView } from "@/lib/types";
 
 const LIFECYCLE_STAGES: { status: OrderStatusValue; label: string }[] = [
   { status: "PENDING", label: "Order placed" },
@@ -191,11 +191,91 @@ function PaymentPanel({
   );
 }
 
+/**
+ * A thin summary + link, not the full workflow — the real fulfillment
+ * actions (process/pack/dispatch) live on /fulfillments/[id], the real
+ * delivery/tracking actions on /deliveries/[id]. This panel just answers
+ * "has fulfillment started, and where do I go next" from the order page
+ * both the buyer and seller already have open.
+ */
+function FulfillmentPanel({
+  order,
+  fulfillment,
+  onStarted,
+}: {
+  order: OrderView;
+  fulfillment: FulfillmentView | null;
+  onStarted: (f: FulfillmentView) => void;
+}) {
+  const authedFetch = useAuthedFetch();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canStart = order.viewerRole === "seller" && order.viewerSellerRole !== "STAFF" && (order.status === "CONFIRMED" || order.status === "PROCESSING");
+
+  if (!fulfillment && !canStart) return null;
+
+  async function startFulfillment() {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await authedFetch<{ fulfillment: FulfillmentView }>(`/orders/${order.id}/fulfillment`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      onStarted(res.fulfillment);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not start fulfillment for this order.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2 className="text-lg font-semibold text-text-primary">Fulfillment</h2>
+
+      {error && (
+        <div className="mt-3">
+          <FormAlert>{error}</FormAlert>
+        </div>
+      )}
+
+      {fulfillment ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <StatusBadge status={fulfillment.status} />
+          {fulfillment.delivery && <StatusBadge status={fulfillment.delivery.status} />}
+          <Link href={`/fulfillments/${fulfillment.id}`} className="btn-secondary">
+            View fulfillment
+          </Link>
+          {fulfillment.delivery && (
+            <Link href={`/deliveries/${fulfillment.delivery.id}`} className="btn-secondary">
+              Track delivery
+            </Link>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-text-secondary">
+            {canStart ? "This order is ready to be fulfilled." : "Fulfillment has not started yet."}
+          </p>
+          {canStart && (
+            <button type="button" disabled={busy} onClick={startFulfillment} className="btn-primary mt-3">
+              {busy ? "Starting…" : "Start fulfillment"}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function OrderDetailContent() {
   const params = useParams<{ id: string }>();
   const authedFetch = useAuthedFetch();
   const [order, setOrder] = useState<OrderView | null>(null);
   const [payments, setPayments] = useState<PaymentView[]>([]);
+  const [fulfillment, setFulfillment] = useState<FulfillmentView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -208,6 +288,8 @@ function OrderDetailContent() {
         const paymentsRes = await authedFetch<{ payments: PaymentView[] }>(`/orders/${params.id}/payments`);
         setPayments(paymentsRes.payments);
       }
+      const fulfillmentRes = await authedFetch<{ fulfillment: FulfillmentView | null }>(`/orders/${params.id}/fulfillment`);
+      setFulfillment(fulfillmentRes.fulfillment);
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 404
@@ -310,6 +392,8 @@ function OrderDetailContent() {
           </section>
 
           <PaymentPanel order={order} payments={payments} onPaymentsChange={setPayments} />
+
+          <FulfillmentPanel order={order} fulfillment={fulfillment} onStarted={setFulfillment} />
 
           {(canManage || canCancel) && (
             <section className="card">

@@ -17,6 +17,18 @@ async function resetDatabase(): Promise<void> {
     // strictly matter, but deleting it first keeps the intent clear.
     prisma.paymentWebhookEvent.deleteMany(),
     prisma.payment.deleteMany(),
+    // Phase 12 — Delivery uses onDelete:Restrict on its Fulfillment/Order/
+    // Organization/User relations, so it must be cleared before all of
+    // them; its own children (DeliveryEvent/DriverLocationUpdate/
+    // ProofOfDelivery) cascade away with it, no separate deleteMany
+    // needed. FulfillmentItem uses onDelete:Restrict on orderItemId, so it
+    // must be cleared before OrderItem specifically (Fulfillment itself
+    // cascades it, but that's not enough — OrderItem's own delete below
+    // still needs it gone first). Fulfillment uses onDelete:Restrict on
+    // Order/Organization/User, so it must be cleared before those too.
+    prisma.delivery.deleteMany(),
+    prisma.fulfillmentItem.deleteMany(),
+    prisma.fulfillment.deleteMany(),
     // Order/OrderItem use onDelete:Restrict on their User/Organization
     // relations (Phase 6 — historical records must never silently vanish
     // via cascade), so unlike every other domain table here, they can't

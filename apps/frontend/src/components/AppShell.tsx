@@ -16,13 +16,21 @@ interface NavItem {
 
 function useNavItems(): NavItem[] {
   const { user } = useAuth();
+  const isDriver = user?.platformRole === "DRIVER";
+
+  // A driver's mobile priorities are different from a buyer/seller's —
+  // Marketplace/Cart make little sense for that persona — so the mobile
+  // set is role-aware rather than a flat push, to stay inside the ~5-item
+  // mobile budget (see this file's own comment on that limit) instead of
+  // growing it for every role that gets one more item.
   const items: NavItem[] = [
     { href: "/dashboard", label: "Overview", mobile: true },
-    { href: "/marketplace", label: "Marketplace", mobile: true },
-    { href: "/cart", label: "Cart", mobile: true },
+    ...(isDriver ? [] : [{ href: "/marketplace", label: "Marketplace", mobile: true }]),
+    ...(isDriver ? [] : [{ href: "/cart", label: "Cart", mobile: true }]),
     { href: "/orders", label: "Orders", mobile: true },
     { href: "/organizations", label: "Organizations" },
     { href: "/directory", label: "Directory" },
+    ...(isDriver ? [{ href: "/driver", label: "Deliveries", mobile: true }] : []),
     { href: "/account", label: "Account", mobile: true },
   ];
   if (user?.platformRole === "PLATFORM_ADMIN") {

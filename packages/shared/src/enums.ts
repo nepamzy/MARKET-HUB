@@ -246,3 +246,26 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
  */
 export const STOCK_MOVEMENT_TYPES = ["RECEIPT", "SALE", "RESERVATION", "RELEASE", "ADJUSTMENT", "RETURN"] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
+
+/**
+ * Fulfillment lifecycle (Phase 12) — see schema.prisma's Fulfillment doc
+ * comment for why it deliberately stops at DISPATCHED rather than also
+ * tracking IN_TRANSIT/DELIVERED (Delivery owns those). Transitions are
+ * centralized in fulfillment.service.ts, never a free-text status.
+ */
+export const FULFILLMENT_STATUSES = ["READY", "PROCESSING", "PACKED", "DISPATCHED", "EXCEPTION"] as const;
+export type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
+
+/**
+ * Delivery lifecycle (Phase 12) — PENDING_PICKUP is set the instant a
+ * Delivery is created (at Fulfillment -> DISPATCHED); IN_TRANSIT once the
+ * driver confirms pickup; DELIVERED only via a server-validated proof of
+ * delivery; FAILED is the exception branch. Transitions are centralized
+ * in delivery.service.ts, never a free-text status.
+ */
+export const DELIVERY_STATUSES = ["PENDING_PICKUP", "IN_TRANSIT", "DELIVERED", "FAILED"] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+/** Append-only delivery timeline entry types (Phase 12). */
+export const DELIVERY_EVENT_TYPES = ["CREATED", "DRIVER_ASSIGNED", "PICKED_UP", "DELIVERED", "FAILED"] as const;
+export type DeliveryEventType = (typeof DELIVERY_EVENT_TYPES)[number];

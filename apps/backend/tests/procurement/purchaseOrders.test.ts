@@ -471,22 +471,28 @@ describe("Purchase Order — does not implement out-of-scope Phase 9 features", 
     const app = testApp();
     const { buyer, rfqId } = await createAwardedRfq(app);
     const ordersBefore = await prisma.order.count();
-    // Payment exists as a model from Phase 10 onward (created only via its
-    // own explicit initiate-for-an-order endpoint, never as a side effect
-    // of creating a PurchaseOrder) — count it rather than asserting the
-    // model is absent, which stopped being true once Phase 10 landed.
-    // Shipment/Delivery still don't exist in the schema at all — their
-    // absence from the Prisma client itself remains the strongest possible
-    // assertion that neither was introduced.
+    // Payment exists as a model from Phase 10 onward, Fulfillment/Delivery
+    // from Phase 12 onward — each created only via its own explicit
+    // endpoint, never as a side effect of creating a PurchaseOrder — so
+    // count them rather than asserting the models are absent, which
+    // stopped being true once those phases landed. Shipment still doesn't
+    // exist in the schema at all (delivery tracking uses the Delivery
+    // model instead) — its absence from the Prisma client itself remains
+    // the strongest possible assertion that it was never introduced.
     const paymentsBefore = await prisma.payment.count();
+    const fulfillmentsBefore = await prisma.fulfillment.count();
+    const deliveriesBefore = await prisma.delivery.count();
 
     await createPo(app, buyer, rfqId);
 
     const ordersAfter = await prisma.order.count();
     const paymentsAfter = await prisma.payment.count();
+    const fulfillmentsAfter = await prisma.fulfillment.count();
+    const deliveriesAfter = await prisma.delivery.count();
     expect(ordersAfter).toBe(ordersBefore);
     expect(paymentsAfter).toBe(paymentsBefore);
+    expect(fulfillmentsAfter).toBe(fulfillmentsBefore);
+    expect(deliveriesAfter).toBe(deliveriesBefore);
     expect((prisma as unknown as Record<string, unknown>).shipment).toBeUndefined();
-    expect((prisma as unknown as Record<string, unknown>).delivery).toBeUndefined();
   });
 });

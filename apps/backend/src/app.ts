@@ -14,6 +14,8 @@ import { healthRouter } from "./modules/health/health.routes";
 import { createPublicInvitesRouter, organizationInvitationsRouter } from "./modules/invitations/invitations.routes";
 import { organizationInventoryRouter } from "./modules/inventory/inventory.routes";
 import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
+import { deliveryDetailRouter, driverDeliveriesRouter } from "./modules/logistics/delivery.routes";
+import { fulfillmentDetailRouter, organizationFulfillmentsRouter, orderFulfillmentRouter } from "./modules/logistics/fulfillment.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
 import { checkoutRouter, organizationOrdersRouter, ordersRouter } from "./modules/orders/orders.routes";
 import { orderPaymentsRouter, paymentsRouter, paymentsWebhookRouter } from "./modules/payments/payments.routes";
@@ -86,6 +88,7 @@ export function createApp(): Express {
   app.use("/api/organizations", organizationNegotiationsRouter);
   app.use("/api/organizations", organizationPurchaseOrdersRouter);
   app.use("/api/organizations", organizationSupplierPurchaseOrdersRouter);
+  app.use("/api/organizations", organizationFulfillmentsRouter);
   app.use("/api/rfqs", rfqDetailRouter);
   app.use("/api/negotiations", negotiationDetailRouter);
   app.use("/api/purchase-orders", purchaseOrderDetailRouter);
@@ -97,7 +100,11 @@ export function createApp(): Express {
   app.use("/api/checkout", checkoutRouter);
   app.use("/api/orders", ordersRouter);
   app.use("/api/orders", orderPaymentsRouter);
+  app.use("/api/orders", orderFulfillmentRouter);
   app.use("/api/payments", paymentsRouter);
+  app.use("/api/fulfillments", fulfillmentDetailRouter);
+  app.use("/api/deliveries", deliveryDetailRouter);
+  app.use("/api/driver", driverDeliveriesRouter);
   app.use("/api/admin", adminRouter);
 
   app.use(notFoundHandler);

@@ -19,7 +19,7 @@ export function UnavailableSection({
   reason,
 }: {
   heading: string;
-  statKey: keyof Pick<AdminStats, "orders" | "rfqs" | "purchaseOrders" | "payments" | "inventory">;
+  statKey: keyof Pick<AdminStats, "orders" | "rfqs" | "purchaseOrders" | "payments" | "inventory" | "fulfillments" | "deliveries">;
   statLabel: string;
   reason: string;
 }) {

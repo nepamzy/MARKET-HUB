@@ -359,6 +359,78 @@ export interface StockMovementView {
   createdAt: string;
 }
 
+// --- Phase 12: Fulfillment, Delivery & Driver Tracking -------------------
+
+export type FulfillmentStatusValue = "READY" | "PROCESSING" | "PACKED" | "DISPATCHED" | "EXCEPTION";
+export type DeliveryStatusValue = "PENDING_PICKUP" | "IN_TRANSIT" | "DELIVERED" | "FAILED";
+export type DeliveryEventTypeValue = "CREATED" | "DRIVER_ASSIGNED" | "PICKED_UP" | "DELIVERED" | "FAILED";
+
+export interface FulfillmentItemView {
+  id: string;
+  orderItemId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface FulfillmentView {
+  id: string;
+  orderId: string;
+  sellerOrganizationId: string;
+  sellerOrganization: { id: string; legalName: string };
+  status: FulfillmentStatusValue;
+  packedAt: string | null;
+  dispatchedAt: string | null;
+  exceptionReason: string | null;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+  items: FulfillmentItemView[];
+  delivery: { id: string; status: DeliveryStatusValue } | null;
+  viewerRole?: "buyer" | "seller";
+}
+
+export interface DeliveryView {
+  id: string;
+  fulfillmentId: string;
+  orderId: string;
+  sellerOrganizationId: string;
+  sellerOrganization: { id: string; legalName: string };
+  buyerUserId: string;
+  buyerUser: { id: string; name: string };
+  status: DeliveryStatusValue;
+  recipientName: string;
+  recipientPhone: string;
+  destinationAddressLine: string;
+  destinationCity: string;
+  destinationState: string | null;
+  destinationCountry: string;
+  driverUserId: string | null;
+  driverUser: { id: string; name: string; email: string } | null;
+  assignedAt: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  failedAt: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  viewerRole?: "buyer" | "seller" | "driver";
+}
+
+export interface DeliveryEventView {
+  id: string;
+  type: DeliveryEventTypeValue;
+  note: string | null;
+  actorUserId: string | null;
+  createdAt: string;
+}
+
+export interface DeliveryLocationView {
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+  stale: boolean;
+}
+
 // --- Phase 7: Procurement Engine — Requisition & RFQ foundation --------
 
 export type RequisitionStatusValue = "DRAFT" | "SUBMITTED" | "RFQ_CREATED" | "CANCELLED";
@@ -634,6 +706,9 @@ export interface AdminStats {
   purchaseOrders: { total: number };
   payments: { total: number; byStatus: Record<string, number> };
   inventory: { total: number };
+  fulfillments: { total: number; byStatus: Record<string, number> };
+  deliveries: { total: number; byStatus: Record<string, number> };
+  drivers: { total: number };
 }
 
 export interface AdminAuditLogEntry {

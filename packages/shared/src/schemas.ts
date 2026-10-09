@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   BUSINESS_TYPES,
+  FULFILLMENT_STATUSES,
   MEMBERSHIP_ROLES,
   OFFER_AVAILABILITIES,
   PERMISSION_RESOURCES,
@@ -627,3 +628,68 @@ export const stockMovementListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 export type StockMovementListQuery = z.infer<typeof stockMovementListQuerySchema>;
+
+// --- Phase 12: Fulfillment, Delivery & Driver Tracking --------------------
+
+/**
+ * Collected at dispatch time (Phase 12) — the seller supplies the delivery
+ * destination because Phase 6 checkout never captured a shipping address
+ * (no commerce requirement needed one before physical fulfillment
+ * existed). See schema.prisma's Delivery doc comment — a known,
+ * documented gap, not an oversight.
+ */
+export const dispatchFulfillmentSchema = z.object({
+  recipientName: z.string().min(1).max(200),
+  recipientPhone: z.string().min(1).max(40),
+  destinationAddressLine: z.string().min(1).max(300),
+  destinationCity: z.string().min(1).max(120),
+  destinationState: z.string().max(120).optional(),
+  destinationCountry: z.string().min(1).max(120),
+});
+export type DispatchFulfillmentInput = z.infer<typeof dispatchFulfillmentSchema>;
+
+export const fulfillmentExceptionSchema = z.object({
+  reason: z.string().min(1).max(1000),
+});
+export type FulfillmentExceptionInput = z.infer<typeof fulfillmentExceptionSchema>;
+
+/**
+ * Assigns a specific, known driver by email (Phase 12) — the same
+ * direct-reference-by-email pattern OrganizationInviteLink.inviteeEmail
+ * already uses, deliberately never a searchable driver roster/marketplace
+ * (Rule 10: no owned driver fleet by default).
+ */
+export const assignDriverSchema = z.object({
+  driverEmail: z.string().email(),
+});
+export type AssignDriverInput = z.infer<typeof assignDriverSchema>;
+
+/**
+ * A real GPS coordinate pair, validated at normal WGS84 bounds — never
+ * trusted beyond range/type checking (Phase 12). The driver's identity
+ * (who is allowed to write this delivery's location) is resolved from the
+ * authenticated caller, never from the request body.
+ */
+export const recordLocationSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+});
+export type RecordLocationInput = z.infer<typeof recordLocationSchema>;
+
+export const confirmProofOfDeliverySchema = z.object({
+  recipientName: z.string().max(200).optional(),
+  notes: z.string().max(1000).optional(),
+});
+export type ConfirmProofOfDeliveryInput = z.infer<typeof confirmProofOfDeliverySchema>;
+
+export const deliveryFailedSchema = z.object({
+  reason: z.string().min(1).max(1000),
+});
+export type DeliveryFailedInput = z.infer<typeof deliveryFailedSchema>;
+
+export const fulfillmentListQuerySchema = z.object({
+  status: z.enum(FULFILLMENT_STATUSES).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type FulfillmentListQuery = z.infer<typeof fulfillmentListQuerySchema>;

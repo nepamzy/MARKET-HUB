@@ -106,6 +106,47 @@ adminRouter.get("/users", validate(paginationSchema, "query"), async (req, res, 
   }
 });
 
+// Phase 12 — the only way a user becomes (or stops being) a DRIVER.
+// Deliberately scoped to CUSTOMER<->DRIVER only: this endpoint can never
+// grant PLATFORM_ADMIN, which stays exactly as ungrantable through any API
+// as it already was (see the module comment above) — explicit,
+// server-side, auditable driver authorization (Rule), never a driver
+// self-signup or marketplace (Rule 10).
+const setDriverRoleSchema = z.object({
+  isDriver: z.boolean(),
+});
+
+adminRouter.patch("/users/:userId/driver-role", validate(setDriverRoleSchema), async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { id: true, platformRole: true } });
+    if (!user) {
+      throw AppError.notFound("User not found");
+    }
+    if (user.platformRole === "PLATFORM_ADMIN") {
+      throw AppError.conflict("Cannot change the driver role of a platform admin");
+    }
+
+    const nextRole = req.body.isDriver ? "DRIVER" : "CUSTOMER";
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { platformRole: nextRole },
+      select: { id: true, name: true, email: true, platformRole: true },
+    });
+
+    await recordAudit({
+      actorUserId: req.user!.id,
+      action: "USER_DRIVER_ROLE_CHANGED",
+      targetType: "User",
+      targetId: user.id,
+      metadata: { from: user.platformRole, to: nextRole },
+    });
+
+    res.status(200).json({ user: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Platform-level KYC review (Phase 2). Distinct from the bare
 // PATCH .../verification endpoint above, which remains as a manual
 // override an admin can still use directly; this is the real reviewed
@@ -216,6 +257,11 @@ adminRouter.get("/stats", async (_req, res, next) => {
       paymentsTotal,
       paymentsByStatus,
       inventoryTrackedTotal,
+      fulfillmentsTotal,
+      fulfillmentsByStatus,
+      deliveriesTotal,
+      deliveriesByStatus,
+      driversTotal,
     ] = await Promise.all([
       prisma.organization.count(),
       prisma.organization.groupBy({ by: ["verificationStatus"], _count: true }),
@@ -241,6 +287,17 @@ adminRouter.get("/stats", async (_req, res, next) => {
       // marketplace seller, competitively sensitive operational data) this
       // endpoint has never exposed — same reasoning as every count above.
       prisma.inventory.count(),
+      // Phase 12 — Fulfillment/Delivery. Counts and status breakdowns
+      // only — a per-delivery row would expose recipient name/phone/
+      // address and driver identity across every organization, exactly
+      // the private personal and commercial information this endpoint has
+      // never exposed (same reasoning as every count above, extended to
+      // Rule: "do not expose unnecessary personal information").
+      prisma.fulfillment.count(),
+      prisma.fulfillment.groupBy({ by: ["status"], _count: true }),
+      prisma.delivery.count(),
+      prisma.delivery.groupBy({ by: ["status"], _count: true }),
+      prisma.user.count({ where: { platformRole: "DRIVER" } }),
     ]);
     res.status(200).json({
       organizations: {
@@ -259,6 +316,15 @@ adminRouter.get("/stats", async (_req, res, next) => {
         byStatus: Object.fromEntries(paymentsByStatus.map((g) => [g.status, g._count])),
       },
       inventory: { total: inventoryTrackedTotal },
+      fulfillments: {
+        total: fulfillmentsTotal,
+        byStatus: Object.fromEntries(fulfillmentsByStatus.map((g) => [g.status, g._count])),
+      },
+      deliveries: {
+        total: deliveriesTotal,
+        byStatus: Object.fromEntries(deliveriesByStatus.map((g) => [g.status, g._count])),
+      },
+      drivers: { total: driversTotal },
     });
   } catch (err) {
     next(err);

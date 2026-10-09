@@ -47,6 +47,10 @@ export async function promoteToPlatformAdmin(userId: string): Promise<void> {
   await prisma.user.update({ where: { id: userId }, data: { platformRole: "PLATFORM_ADMIN" } });
 }
 
+export async function promoteToDriver(userId: string): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { platformRole: "DRIVER" } });
+}
+
 /** Extracts the raw refresh token value out of a `Set-Cookie` header string. */
 export function extractRefreshToken(setCookieHeader: string): string {
   const match = setCookieHeader.match(new RegExp(`${REFRESH_COOKIE_NAME}=([^;]+)`));

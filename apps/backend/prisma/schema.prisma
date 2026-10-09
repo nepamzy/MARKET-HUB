@@ -287,6 +287,12 @@ model User {
   purchaseOrdersConfirmed    PurchaseOrder[]           @relation("PurchaseOrderConfirmedBy")
   paymentsAsBuyer            Payment[]
   stockMovementsActed        StockMovement[]
+  fulfillmentsCreated        Fulfillment[]
+  deliveriesAsDriver         Delivery[]           @relation("DeliveryDriver")
+  deliveriesAsBuyer          Delivery[]           @relation("DeliveryBuyer")
+  driverLocationUpdates      DriverLocationUpdate[]
+  deliveryEventsActed        DeliveryEvent[]
+  proofsOfDeliveryConfirmed  ProofOfDelivery[]
 
   @@map("users")
 }
@@ -352,6 +358,8 @@ model Organization {
   purchaseOrdersAsBuyer    PurchaseOrder[]           @relation("PurchaseOrderBuyer")
   purchaseOrdersAsSupplier PurchaseOrder[]           @relation("PurchaseOrderSupplier")
   inventory                Inventory[]
+  fulfillments             Fulfillment[]
+  deliveriesAsSeller       Delivery[]             @relation("DeliverySeller")
 
   @@index([businessType])
   @@map("organizations")
@@ -788,6 +796,8 @@ model Order {
   items          OrderItem[]
   payments       Payment[]
   stockMovements StockMovement[]
+  fulfillment    Fulfillment?
+  delivery       Delivery?
 
   @@index([buyerUserId])
   @@index([sellerOrganizationId])
@@ -825,6 +835,8 @@ model OrderItem {
   currency               String
   lineTotalMinor         Int
   createdAt              DateTime    @default(now())
+
+  fulfillmentItems FulfillmentItem[]
 
   @@index([orderId])
   @@map("order_items")
@@ -1473,4 +1485,222 @@ model StockMovement {
   @@index([inventoryId])
   @@index([orderId])
   @@map("stock_movements")
+}
+
+// === Phase 12 — Fulfillment, Delivery, and Driver Tracking =================
+//
+// Attaches to Order (the Phase 6 commerce path), never to PurchaseOrder —
+// the same attachment point Payment (Phase 10) and Inventory (Phase 11)
+// already use, and consistent with Phase 9's own explicit scope boundary
+// ("No payment, inventory reservation, shipment, or delivery tracking is
+// created from any of this" — see PurchaseOrder's doc comment above).
+//
+// The chain is Order -> Fulfillment (1:1, seller-side packing) ->
+// Delivery (1:1, driver-side transit) -> ProofOfDelivery (1:1, completion
+// evidence), with DeliveryEvent as an append-only timeline and
+// DriverLocationUpdate as an append-only location ledger.
+//
+// Fulfillment and Order are DELIBERATELY DECOUPLED state machines, the
+// same precedent Phase 10 already set for Payment and Order ("Payment
+// success is a fact about money moving, never about order fulfillment").
+// Creating, dispatching, or completing a Fulfillment/Delivery never
+// writes to Order.status — the seller's own existing Order actions
+// (confirm/start-processing/complete/cancel) remain entirely separate.
+// This is a deliberate architectural decision, not an oversight: it keeps
+// each state machine independently understandable and avoids retrofitting
+// new transition rules into orders.service.ts's existing, tested table.
+//
+// Driver identity reuses the EXISTING PlatformRole.DRIVER value (defined
+// since Phase A, never previously wired to anything) rather than
+// introducing a new model — a "driver" is simply a User whose
+// platformRole is DRIVER, the same pattern PLATFORM_ADMIN already uses.
+// Assignment is by-email, direct reference to a specific known driver
+// (the same pattern OrganizationInviteLink.inviteeEmail already uses for
+// inviting a specific person) — never a searchable public driver roster
+// or marketplace (Rule 10: no owned driver fleet by default; the intended
+// long-term architecture is a third-party logistics marketplace, which
+// this foundation deliberately does not attempt to build).
+
+enum FulfillmentStatus {
+  READY
+  PROCESSING
+  PACKED
+  DISPATCHED
+  EXCEPTION
+}
+
+/// One Fulfillment per Order (orderId is @unique — the DB-level guarantee
+/// against duplicate fulfillment records, not just a service-layer check).
+/// Deliberately stops at DISPATCHED — pickup/transit/delivery is Delivery's
+/// own state machine, not duplicated here (a "more appropriate state
+/// machine," per the phase brief, than tracking IN_TRANSIT/DELIVERED on
+/// both models where they could drift out of sync). EXCEPTION is reachable
+/// from READY/PROCESSING/PACKED (a packing-stage problem — e.g. damaged
+/// stock found during packing) but not from DISPATCHED, where Delivery's
+/// own FAILED status is the equivalent.
+model Fulfillment {
+  id                   String            @id @default(uuid())
+  orderId              String            @unique
+  order                Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sellerOrganizationId String
+  sellerOrganization   Organization      @relation(fields: [sellerOrganizationId], references: [id], onDelete: Restrict)
+  status               FulfillmentStatus @default(READY)
+  packedAt             DateTime?
+  dispatchedAt         DateTime?
+  exceptionReason      String?
+  createdByUserId      String
+  createdByUser        User              @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  items    FulfillmentItem[]
+  delivery Delivery?
+
+  @@index([sellerOrganizationId])
+  @@index([status])
+  @@map("fulfillments")
+}
+
+/// Always exactly one row per OrderItem of the fulfilled Order, with
+/// quantity always equal to OrderItem.quantity — this minimal foundation
+/// does not support partial/split fulfillment, so "no quantities beyond
+/// eligible order quantities" holds by construction, not by a validated
+/// user input. productId/productName are snapshotted the same way
+/// OrderItem itself snapshots them, for the same reason (the live product
+/// may later change or be archived).
+model FulfillmentItem {
+  id            String      @id @default(uuid())
+  fulfillmentId String
+  fulfillment   Fulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Cascade)
+  orderItemId   String
+  orderItem     OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  productName   String
+  quantity      Int
+  createdAt     DateTime    @default(now())
+
+  @@index([fulfillmentId])
+  @@map("fulfillment_items")
+}
+
+enum DeliveryStatus {
+  PENDING_PICKUP
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+}
+
+/// Created automatically the instant a Fulfillment reaches DISPATCHED
+/// (never created directly) — one per Fulfillment (fulfillmentId is
+/// @unique). orderId is denormalized from fulfillment.orderId for the
+/// same join-free-authorization reason PurchaseOrder/Negotiation already
+/// denormalize their own organization ids. Destination fields are
+/// collected at dispatch time by the seller, not derived from Order —
+/// Phase 6 checkout never collected a shipping address (no commerce
+/// requirement needed one before physical fulfillment existed), so there
+/// is no existing source to read one from. This is a known, documented
+/// gap (see the phase report), not an oversight.
+model Delivery {
+  id                     String           @id @default(uuid())
+  fulfillmentId          String           @unique
+  fulfillment            Fulfillment      @relation(fields: [fulfillmentId], references: [id], onDelete: Restrict)
+  orderId                String           @unique
+  order                  Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sellerOrganizationId   String
+  sellerOrganization     Organization     @relation("DeliverySeller", fields: [sellerOrganizationId], references: [id], onDelete: Restrict)
+  buyerUserId            String
+  buyerUser              User             @relation("DeliveryBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
+  status                 DeliveryStatus   @default(PENDING_PICKUP)
+  recipientName          String
+  recipientPhone         String
+  destinationAddressLine String
+  destinationCity        String
+  destinationState       String?
+  destinationCountry     String
+  driverUserId           String?
+  driverUser             User?            @relation("DeliveryDriver", fields: [driverUserId], references: [id], onDelete: SetNull)
+  assignedAt             DateTime?
+  pickedUpAt             DateTime?
+  deliveredAt            DateTime?
+  failedAt               DateTime?
+  failureReason          String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  events          DeliveryEvent[]
+  locations       DriverLocationUpdate[]
+  proofOfDelivery ProofOfDelivery?
+
+  @@index([sellerOrganizationId])
+  @@index([buyerUserId])
+  @@index([driverUserId])
+  @@index([status])
+  @@map("deliveries")
+}
+
+enum DeliveryEventType {
+  CREATED
+  DRIVER_ASSIGNED
+  PICKED_UP
+  DELIVERED
+  FAILED
+}
+
+/// Append-only timeline — distinct from DriverLocationUpdate, which is a
+/// high-frequency position ledger, not a human-meaningful event list.
+model DeliveryEvent {
+  id          String            @id @default(uuid())
+  deliveryId  String
+  delivery    Delivery          @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  type        DeliveryEventType
+  note        String?
+  actorUserId String?
+  actorUser   User?             @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  createdAt   DateTime          @default(now())
+
+  @@index([deliveryId])
+  @@map("delivery_events")
+}
+
+/// Append-only — never updated or deleted, so "last known location" is
+/// always just "most recent row for this delivery", and staleness is
+/// always computable from recordedAt rather than trusted from the client.
+/// Only the assigned driver may ever write one (enforced in
+/// delivery.service.ts: driverUserId must equal both the authenticated
+/// caller and delivery.driverUserId at write time).
+model DriverLocationUpdate {
+  id           String   @id @default(uuid())
+  deliveryId   String
+  delivery     Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  driverUserId String
+  driverUser   User     @relation(fields: [driverUserId], references: [id], onDelete: Restrict)
+  latitude     Float
+  longitude    Float
+  recordedAt   DateTime @default(now())
+
+  @@index([deliveryId, recordedAt])
+  @@map("driver_location_updates")
+}
+
+/// Driver-confirmed completion evidence — text-only (recipientName/notes),
+/// deliberately NOT a photo/signature upload: no file-storage
+/// infrastructure exists anywhere in this codebase yet (Product's own
+/// image fields are plain URL strings with no upload endpoint behind
+/// them), and introducing one is a paid-storage/architecture decision
+/// CLAUDE.md Rule 1/4 names as stop-and-ask, not something to build
+/// silently as a side effect of this phase. Flagged in the phase report.
+/// confirmedByUserId is always the assigned driver (never the buyer, and
+/// never trusted from an unauthenticated or unauthorized caller) — see
+/// delivery.service.ts for the server-side state/authorization checks a
+/// client-submitted "success" flag never bypasses.
+model ProofOfDelivery {
+  id                String   @id @default(uuid())
+  deliveryId        String   @unique
+  delivery          Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  confirmedByUserId String
+  confirmedByUser   User     @relation(fields: [confirmedByUserId], references: [id], onDelete: Restrict)
+  recipientName     String?
+  notes             String?
+  confirmedAt       DateTime @default(now())
+
+  @@map("proofs_of_delivery")
 }
