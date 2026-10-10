@@ -693,3 +693,15 @@ export const fulfillmentListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type FulfillmentListQuery = z.infer<typeof fulfillmentListQuerySchema>;
+
+// --- Phase 13: Notifications ----------------------------------------------
+
+export const notificationListQuerySchema = z.object({
+  unreadOnly: z
+    .union([z.literal("true"), z.literal("false")])
+    .optional()
+    .transform((v) => v === "true"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type NotificationListQuery = z.infer<typeof notificationListQuerySchema>;

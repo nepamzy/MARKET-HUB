@@ -2,6 +2,7 @@ import type { CreateSupplierResponseInput, UpdateSupplierResponseDraftInput } fr
 import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
+import { notifyOrganizationMembers } from "../notifications/notifications.service";
 
 const RESPONSE_ITEM_SELECT = {
   id: true,
@@ -195,6 +196,21 @@ export async function submitSupplierResponse(organizationId: string, rfqId: stri
     targetId: existing.id,
     metadata: { rfqId },
   });
+
+  // Buyer org only — never any other targeted supplier. The buyer side
+  // sees that A response arrived, never this supplier's prices/terms via
+  // the notification itself (those stay behind the normal RFQ comparison
+  // authorization check).
+  const rfq = await prisma.rfq.findUnique({ where: { id: rfqId }, select: { buyerOrganizationId: true } });
+  if (rfq) {
+    await notifyOrganizationMembers(rfq.buyerOrganizationId, "STAFF", {
+      type: "SUPPLIER_RESPONSE_RECEIVED",
+      title: "New supplier response received",
+      message: "A supplier submitted a response to your RFQ.",
+      relatedEntityType: "Rfq",
+      relatedEntityId: rfqId,
+    });
+  }
 
   return response;
 }

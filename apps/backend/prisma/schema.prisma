@@ -293,6 +293,7 @@ model User {
   driverLocationUpdates      DriverLocationUpdate[]
   deliveryEventsActed        DeliveryEvent[]
   proofsOfDeliveryConfirmed  ProofOfDelivery[]
+  notifications              Notification[]
 
   @@map("users")
 }
@@ -1703,4 +1704,64 @@ model ProofOfDelivery {
   confirmedAt       DateTime @default(now())
 
   @@map("proofs_of_delivery")
+}
+
+// === Phase 13 — Notification infrastructure ================================
+//
+// A per-user inbox, deliberately separate from AuditLog: AuditLog is a
+// platform-wide security/operational trail (who did what, to what, when —
+// §21 of the master blueprint), read by platform admins; Notification is
+// "does THIS user have something new to look at," read by that user alone.
+// The same domain event can (and often does) produce both an AuditLog row
+// and a Notification, written at the same call site, but they are never
+// the same row and never substitute for each other. The underlying domain
+// record (Order/Payment/Delivery/...) stays the only authoritative source
+// of truth for its own status — a Notification is a pointer to it with a
+// human-readable summary frozen at the moment it was sent, never a second
+// place that status is computed from.
+
+enum NotificationType {
+  INVITATION_RECEIVED
+  JOIN_REQUEST_DECIDED
+  KYC_STATUS_CHANGED
+  ORDER_STATUS_CHANGED
+  PAYMENT_STATUS_CHANGED
+  RFQ_ISSUED
+  SUPPLIER_RESPONSE_RECEIVED
+  NEGOTIATION_UPDATE
+  AWARD_CREATED
+  PURCHASE_ORDER_STATUS_CHANGED
+  FULFILLMENT_STATUS_CHANGED
+  DELIVERY_DRIVER_ASSIGNED
+  DELIVERY_STATUS_CHANGED
+}
+
+/// relatedEntityType/relatedEntityId is a loose, unenforced polymorphic
+/// reference (no FK) — the exact same pattern AuditLog's targetType/
+/// targetId already uses, for the same reason: a notification must be
+/// able to point at any of a dozen different entity types without a
+/// dozen nullable foreign-key columns. dedupeKey is optional and unique:
+/// most call sites already fire exactly once (they're placed at the same
+/// guarded transition-table call site recordAudit uses), but a handful
+/// sit behind something retriable (a webhook) where a second, genuinely
+/// concurrent attempt is possible — dedupeKey catches that case at the
+/// database level rather than trusting the call site alone. Never used
+/// as a second source of truth for the underlying entity's status (see
+/// the module comment above) — always a frozen, human-readable summary.
+model Notification {
+  id                String            @id @default(uuid())
+  recipientUserId   String
+  recipientUser     User              @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+  type              NotificationType
+  title             String
+  message           String
+  relatedEntityType String?
+  relatedEntityId   String?
+  dedupeKey         String?           @unique
+  readAt            DateTime?
+  createdAt         DateTime          @default(now())
+
+  @@index([recipientUserId, createdAt])
+  @@index([recipientUserId, readAt])
+  @@map("notifications")
 }

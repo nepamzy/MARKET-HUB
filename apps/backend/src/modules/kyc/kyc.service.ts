@@ -3,6 +3,7 @@ import type { KYCStatus, UpdateOrganizationProfileInput } from "@market-hub/shar
 import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
+import { notify } from "../notifications/notifications.service";
 
 type KycDecision = Extract<KYCStatus, "VERIFIED" | "REJECTED" | "NEEDS_INFORMATION">;
 
@@ -243,6 +244,23 @@ export async function reviewKycSubmission(
       targetId: submissionId,
       metadata: { note },
     });
+
+    if (submission.submittedByUserId) {
+      const DECISION_COPY: Record<KycDecision, string> = {
+        VERIFIED: "Your business verification was approved.",
+        REJECTED: "Your business verification was rejected.",
+        NEEDS_INFORMATION: "Additional information is needed for your business verification.",
+      };
+      await notify({
+        recipientUserId: submission.submittedByUserId,
+        type: "KYC_STATUS_CHANGED",
+        title: "Business verification update",
+        message: note ? `${DECISION_COPY[decision]} ${note}` : DECISION_COPY[decision],
+        relatedEntityType: "KYCSubmission",
+        relatedEntityId: submissionId,
+        dedupeKey: `KYC_STATUS_CHANGED:${submissionId}:${decision}`,
+      });
+    }
 
     return updated;
   });

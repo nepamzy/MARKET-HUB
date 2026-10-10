@@ -4,6 +4,7 @@ import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
 import { consumeReservationForOrder } from "../inventory/inventory.service";
+import { notify } from "../notifications/notifications.service";
 import type { MembershipRole } from "@market-hub/shared";
 
 const FULFILLMENT_SELECT = {
@@ -169,9 +170,13 @@ async function transitionFulfillment(
   to: FulfillmentStatus,
   actorUserId: string,
   auditAction: string,
-  extraData: Record<string, unknown> = {}
+  extraData: Record<string, unknown> = {},
+  notifyBuyerMessage?: string
 ) {
-  const fulfillment = await prisma.fulfillment.findUnique({ where: { id: fulfillmentId }, select: { status: true, sellerOrganizationId: true } });
+  const fulfillment = await prisma.fulfillment.findUnique({
+    where: { id: fulfillmentId },
+    select: { status: true, sellerOrganizationId: true, orderId: true },
+  });
   if (!fulfillment) {
     throw AppError.notFound("Fulfillment not found");
   }
@@ -190,17 +195,45 @@ async function transitionFulfillment(
     metadata: { from: fulfillment.status, to },
   });
 
+  if (notifyBuyerMessage) {
+    const order = await prisma.order.findUnique({ where: { id: fulfillment.orderId }, select: { buyerUserId: true } });
+    if (order) {
+      await notify({
+        recipientUserId: order.buyerUserId,
+        type: "FULFILLMENT_STATUS_CHANGED",
+        title: "Order fulfillment update",
+        message: notifyBuyerMessage,
+        relatedEntityType: "Fulfillment",
+        relatedEntityId: fulfillmentId,
+      });
+    }
+  }
+
   return getFulfillmentForViewer(fulfillmentId, actorUserId);
 }
 
 export async function startProcessingFulfillment(fulfillmentId: string, actorUserId: string) {
   await assertSellerAccess(fulfillmentId, actorUserId, "STAFF");
-  return transitionFulfillment(fulfillmentId, "PROCESSING", actorUserId, "FULFILLMENT_PROCESSING_STARTED");
+  return transitionFulfillment(
+    fulfillmentId,
+    "PROCESSING",
+    actorUserId,
+    "FULFILLMENT_PROCESSING_STARTED",
+    {},
+    "The seller has started processing your order."
+  );
 }
 
 export async function markFulfillmentPacked(fulfillmentId: string, actorUserId: string) {
   await assertSellerAccess(fulfillmentId, actorUserId, "STAFF");
-  return transitionFulfillment(fulfillmentId, "PACKED", actorUserId, "FULFILLMENT_PACKED", { packedAt: new Date() });
+  return transitionFulfillment(
+    fulfillmentId,
+    "PACKED",
+    actorUserId,
+    "FULFILLMENT_PACKED",
+    { packedAt: new Date() },
+    "Your order has been packed and is ready for dispatch."
+  );
 }
 
 export async function markFulfillmentException(fulfillmentId: string, actorUserId: string, reason: string) {
@@ -262,6 +295,15 @@ export async function dispatchFulfillment(fulfillmentId: string, actorUserId: st
     targetType: "Fulfillment",
     targetId: fulfillmentId,
     metadata: { orderId: fulfillment.orderId },
+  });
+
+  await notify({
+    recipientUserId: order.buyerUserId,
+    type: "FULFILLMENT_STATUS_CHANGED",
+    title: "Your order is on its way",
+    message: "Your order has been dispatched for delivery.",
+    relatedEntityType: "Fulfillment",
+    relatedEntityId: fulfillmentId,
   });
 
   return getFulfillmentForViewer(fulfillmentId, actorUserId);

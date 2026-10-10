@@ -3,6 +3,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
+import { notifyOrganizationMembers } from "../notifications/notifications.service";
 import { formatRfqReference, getMembershipRole } from "./rfqs.service";
 
 const NEGOTIATION_EVENT_ITEM_SELECT = {
@@ -194,6 +195,14 @@ export async function createNegotiation(
     metadata: { authorRole: "BUYER" },
   });
 
+  await notifyOrganizationMembers(response.supplierOrganizationId, "MANAGER", {
+    type: "NEGOTIATION_UPDATE",
+    title: "A buyer opened a negotiation",
+    message: "A buyer opened a negotiation on your RFQ response.",
+    relatedEntityType: "Negotiation",
+    relatedEntityId: negotiation.id,
+  });
+
   return withRfqReference({ ...negotiation, viewerRole: "buyer" as const });
 }
 
@@ -304,6 +313,23 @@ export async function respondToNegotiation(negotiationId: string, actorUserId: s
       metadata: { by: side },
     });
   }
+
+  // Notify only the OTHER side — same MANAGER+ threshold respondToNegotiation
+  // itself requires to act, since only those members could do anything
+  // about it. Never the acting side (it already knows what it just did).
+  const counterpartOrganizationId = side === "buyer" ? negotiation.supplierOrganizationId : negotiation.buyerOrganizationId;
+  const NEGOTIATION_UPDATE_COPY: Record<RespondToNegotiationInput["decision"], string> = {
+    COUNTER: "A new counter-offer was made on your negotiation.",
+    ACCEPT: "Your negotiation was accepted.",
+    DECLINE: "Your negotiation was closed without agreement.",
+  };
+  await notifyOrganizationMembers(counterpartOrganizationId, "MANAGER", {
+    type: "NEGOTIATION_UPDATE",
+    title: "Negotiation update",
+    message: NEGOTIATION_UPDATE_COPY[input.decision],
+    relatedEntityType: "Negotiation",
+    relatedEntityId: negotiationId,
+  });
 
   return getNegotiationForViewer(negotiationId, actorUserId);
 }

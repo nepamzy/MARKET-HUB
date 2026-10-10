@@ -3,6 +3,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
+import { notifyOrganizationMembers } from "../notifications/notifications.service";
 
 const RFQ_ITEM_SELECT = {
   id: true,
@@ -286,6 +287,27 @@ export async function issueRfq(organizationId: string, rfqId: string, actorUserI
   });
 
   await recordAudit({ actorUserId, organizationId, action: "RFQ_ISSUED", targetType: "Rfq", targetId: rfqId });
+
+  // Notify every targeted supplier org at STAFF+ — the same threshold that
+  // grants them view access to an issued RFQ (see RFQ_BUYER_SELECT usage /
+  // the supplierRole >= STAFF check below in getRfqForViewer). Each
+  // supplier only learns about its own targeting, never about other
+  // targeted suppliers.
+  const targets = await prisma.rfqSupplierTarget.findMany({
+    where: { rfqId },
+    select: { supplierOrganizationId: true },
+  });
+  await Promise.all(
+    targets.map((target) =>
+      notifyOrganizationMembers(target.supplierOrganizationId, "STAFF", {
+        type: "RFQ_ISSUED",
+        title: "New RFQ invitation",
+        message: `You've been invited to respond to RFQ ${withRfqReference(rfq).reference}: ${rfq.title}.`,
+        relatedEntityType: "Rfq",
+        relatedEntityId: rfqId,
+      })
+    )
+  );
 
   return withRfqReference(rfq);
 }
@@ -581,6 +603,18 @@ export async function awardRfq(organizationId: string, rfqId: string, actorUserI
     targetType: "Award",
     targetId: award.id,
     metadata: { rfqId, responseId: response.id, supplierOrganizationId: response.supplierOrganizationId },
+  });
+
+  // Only the winning supplier org is notified — losing suppliers must never
+  // learn who won or that an award happened at all through this path (Phase
+  // 7's existing privacy model: a losing supplier's RFQ view never exposes
+  // award/competitor information).
+  await notifyOrganizationMembers(response.supplierOrganizationId, "STAFF", {
+    type: "AWARD_CREATED",
+    title: "Your response was awarded",
+    message: `Your response to RFQ ${rfqId.slice(0, 8)} was awarded.`,
+    relatedEntityType: "Award",
+    relatedEntityId: award.id,
   });
 
   return award;

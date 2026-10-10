@@ -269,3 +269,25 @@ export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 /** Append-only delivery timeline entry types (Phase 12). */
 export const DELIVERY_EVENT_TYPES = ["CREATED", "DRIVER_ASSIGNED", "PICKED_UP", "DELIVERED", "FAILED"] as const;
 export type DeliveryEventType = (typeof DELIVERY_EVENT_TYPES)[number];
+
+/**
+ * Every notification event this phase actually sends (Phase 13) — see
+ * schema.prisma's Notification doc comment for why this is a closed set,
+ * never a free-text type, and never a substitute for AuditLog.
+ */
+export const NOTIFICATION_TYPES = [
+  "INVITATION_RECEIVED",
+  "JOIN_REQUEST_DECIDED",
+  "KYC_STATUS_CHANGED",
+  "ORDER_STATUS_CHANGED",
+  "PAYMENT_STATUS_CHANGED",
+  "RFQ_ISSUED",
+  "SUPPLIER_RESPONSE_RECEIVED",
+  "NEGOTIATION_UPDATE",
+  "AWARD_CREATED",
+  "PURCHASE_ORDER_STATUS_CHANGED",
+  "FULFILLMENT_STATUS_CHANGED",
+  "DELIVERY_DRIVER_ASSIGNED",
+  "DELIVERY_STATUS_CHANGED",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

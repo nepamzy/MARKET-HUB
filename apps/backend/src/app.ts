@@ -16,6 +16,7 @@ import { organizationInventoryRouter } from "./modules/inventory/inventory.route
 import { organizationOnboardingRouter } from "./modules/kyc/kyc.routes";
 import { deliveryDetailRouter, driverDeliveriesRouter } from "./modules/logistics/delivery.routes";
 import { fulfillmentDetailRouter, organizationFulfillmentsRouter, orderFulfillmentRouter } from "./modules/logistics/fulfillment.routes";
+import { notificationsRouter } from "./modules/notifications/notifications.routes";
 import { organizationsRouter } from "./modules/organizations/organizations.routes";
 import { checkoutRouter, organizationOrdersRouter, ordersRouter } from "./modules/orders/orders.routes";
 import { orderPaymentsRouter, paymentsRouter, paymentsWebhookRouter } from "./modules/payments/payments.routes";
@@ -105,6 +106,7 @@ export function createApp(): Express {
   app.use("/api/fulfillments", fulfillmentDetailRouter);
   app.use("/api/deliveries", deliveryDetailRouter);
   app.use("/api/driver", driverDeliveriesRouter);
+  app.use("/api/notifications", notificationsRouter);
   app.use("/api/admin", adminRouter);
 
   app.use(notFoundHandler);

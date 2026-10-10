@@ -5,6 +5,7 @@ import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
 import { releaseReservationForOrder, reserveStockForOrder } from "../inventory/inventory.service";
+import { notify } from "../notifications/notifications.service";
 import type { MembershipRole } from "@market-hub/shared";
 
 const ORDER_SELECT = {
@@ -66,7 +67,10 @@ async function transitionOrder(
   auditAction: string,
   extraData: Record<string, unknown> = {}
 ) {
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true, sellerOrganizationId: true } });
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { status: true, sellerOrganizationId: true, buyerUserId: true },
+  });
   if (!order) {
     throw AppError.notFound("Order not found");
   }
@@ -88,6 +92,20 @@ async function transitionOrder(
     targetId: orderId,
     metadata: { from: order.status, to },
   });
+
+  // Only the buyer needs telling — they're never the one performing a
+  // seller-driven transition, and a buyer-initiated cancellation needs no
+  // notification back to themselves.
+  if (order.buyerUserId !== actorUserId) {
+    await notify({
+      recipientUserId: order.buyerUserId,
+      type: "ORDER_STATUS_CHANGED",
+      title: "Your order status changed",
+      message: `Order ${orderId.slice(0, 8)} is now ${to}.`,
+      relatedEntityType: "Order",
+      relatedEntityId: orderId,
+    });
+  }
 
   // Re-read through getOrderForViewer (not a raw re-select) so every
   // order-returning endpoint — GET and every action — has the exact same

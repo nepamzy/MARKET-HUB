@@ -9,6 +9,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
+import { notifyOrganizationMembers } from "../notifications/notifications.service";
 import { formatRfqReference, getMembershipRole } from "./rfqs.service";
 
 const PO_ITEM_SELECT = {
@@ -144,7 +145,8 @@ async function transitionPurchaseOrder(
   actorUserId: string,
   organizationId: string,
   auditAction: string,
-  extraData: Record<string, unknown> = {}
+  extraData: Record<string, unknown> = {},
+  notifyRecipient?: { organizationId: string; minRole: MembershipRole; title: string; message: string }
 ) {
   const po = await prisma.purchaseOrder.findUnique({ where: { id: poId }, select: { status: true } });
   if (!po) {
@@ -164,6 +166,16 @@ async function transitionPurchaseOrder(
     targetId: poId,
     metadata: { from: po.status, to },
   });
+
+  if (notifyRecipient) {
+    await notifyOrganizationMembers(notifyRecipient.organizationId, notifyRecipient.minRole, {
+      type: "PURCHASE_ORDER_STATUS_CHANGED",
+      title: notifyRecipient.title,
+      message: notifyRecipient.message,
+      relatedEntityType: "PurchaseOrder",
+      relatedEntityId: poId,
+    });
+  }
 
   // Re-read through getPurchaseOrderForViewer (not a raw re-select) so every
   // PO-returning endpoint has the exact same response shape, including
@@ -399,18 +411,42 @@ export async function listSupplierPurchaseOrders(organizationId: string, query: 
  * approval, and approve"). */
 export async function submitPurchaseOrderForApproval(poId: string, actorUserId: string) {
   const po = await assertBuyerAccess(poId, actorUserId, "MANAGER");
-  return transitionPurchaseOrder(poId, "PENDING_APPROVAL", actorUserId, po.buyerOrganizationId, "PO_SUBMITTED_FOR_APPROVAL", {
-    submittedForApprovalAt: new Date(),
-  });
+  return transitionPurchaseOrder(
+    poId,
+    "PENDING_APPROVAL",
+    actorUserId,
+    po.buyerOrganizationId,
+    "PO_SUBMITTED_FOR_APPROVAL",
+    { submittedForApprovalAt: new Date() },
+    // Notify the buyer org's own OWNER tier — the approval step itself is
+    // internal to the buyer side, so the supplier is never notified yet.
+    {
+      organizationId: po.buyerOrganizationId,
+      minRole: "OWNER",
+      title: "Purchase order awaiting approval",
+      message: "A purchase order was submitted and is awaiting your approval.",
+    }
+  );
 }
 
 /** PENDING_APPROVAL -> APPROVED, buyer MANAGER+. */
 export async function approvePurchaseOrder(poId: string, actorUserId: string) {
   const po = await assertBuyerAccess(poId, actorUserId, "MANAGER");
-  return transitionPurchaseOrder(poId, "APPROVED", actorUserId, po.buyerOrganizationId, "PO_APPROVED", {
-    approvedAt: new Date(),
-    approvedByUserId: actorUserId,
-  });
+  return transitionPurchaseOrder(
+    poId,
+    "APPROVED",
+    actorUserId,
+    po.buyerOrganizationId,
+    "PO_APPROVED",
+    { approvedAt: new Date(), approvedByUserId: actorUserId },
+    // Now the supplier side needs to know — it's their turn to confirm.
+    {
+      organizationId: po.supplierOrganizationId,
+      minRole: "MANAGER",
+      title: "Purchase order approved",
+      message: "A buyer approved a purchase order — your confirmation is needed.",
+    }
+  );
 }
 
 /** APPROVED -> CONFIRMED, supplier MANAGER+ (same bar as accepting/
@@ -420,8 +456,19 @@ export async function approvePurchaseOrder(poId: string, actorUserId: string) {
  * awarded supplier — see that function's doc comment. */
 export async function confirmPurchaseOrder(poId: string, actorUserId: string) {
   const po = await assertSupplierAccess(poId, actorUserId, "MANAGER");
-  return transitionPurchaseOrder(poId, "CONFIRMED", actorUserId, po.supplierOrganizationId, "PO_CONFIRMED", {
-    confirmedAt: new Date(),
-    confirmedByUserId: actorUserId,
-  });
+  return transitionPurchaseOrder(
+    poId,
+    "CONFIRMED",
+    actorUserId,
+    po.supplierOrganizationId,
+    "PO_CONFIRMED",
+    { confirmedAt: new Date(), confirmedByUserId: actorUserId },
+    // Deal is done — the buyer side should know.
+    {
+      organizationId: po.buyerOrganizationId,
+      minRole: "MANAGER",
+      title: "Purchase order confirmed",
+      message: "The supplier confirmed your purchase order.",
+    }
+  );
 }

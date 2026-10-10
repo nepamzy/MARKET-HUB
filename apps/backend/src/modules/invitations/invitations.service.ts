@@ -3,6 +3,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { generateInviteToken, hashInviteToken } from "../../lib/inviteTokens";
 import { prisma } from "../../lib/prisma";
+import { notify } from "../notifications/notifications.service";
 
 const MAX_INVITE_LINKS_PER_LIST = 100;
 
@@ -36,6 +37,26 @@ export async function createInviteLink(
     targetId: link.id,
     metadata: { inviteeEmail: input.inviteeEmail, role: link.role, expiresAt: link.expiresAt },
   });
+
+  // Only notifiable if the invitee already has an account — a generic
+  // link, or a direct invite to an email with no matching account yet,
+  // has no in-app recipient to notify (they'll see it when they sign up
+  // and open the link itself).
+  if (input.inviteeEmail) {
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { legalName: true } });
+    const invitee = await prisma.user.findUnique({ where: { email: input.inviteeEmail.toLowerCase() }, select: { id: true } });
+    if (invitee && organization) {
+      await notify({
+        recipientUserId: invitee.id,
+        type: "INVITATION_RECEIVED",
+        title: "You've been invited to join a business",
+        message: `${organization.legalName} invited you to join as ${link.role}.`,
+        relatedEntityType: "OrganizationInviteLink",
+        relatedEntityId: link.id,
+        dedupeKey: `INVITATION_RECEIVED:${link.id}`,
+      });
+    }
+  }
 
   // The raw token is returned exactly once, here, and never persisted or
   // logged anywhere else — same discipline as a refresh token.
@@ -299,6 +320,17 @@ export async function reviewJoinRequest(
       targetType: "OrganizationJoinRequest",
       targetId: requestId,
       metadata: { targetUserId: updated.userId },
+    });
+
+    const organization = await tx.organization.findUnique({ where: { id: organizationId }, select: { legalName: true } });
+    await notify({
+      recipientUserId: updated.userId,
+      type: "JOIN_REQUEST_DECIDED",
+      title: decision === "APPROVED" ? "Your request to join was approved" : "Your request to join was rejected",
+      message: `${organization?.legalName ?? "A business"} ${decision === "APPROVED" ? "approved" : "rejected"} your request to join.`,
+      relatedEntityType: "OrganizationJoinRequest",
+      relatedEntityId: requestId,
+      dedupeKey: `JOIN_REQUEST_DECIDED:${requestId}`,
     });
 
     return updated;

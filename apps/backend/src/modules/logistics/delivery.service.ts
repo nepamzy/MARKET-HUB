@@ -3,6 +3,7 @@ import { AppError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
 import { ROLE_RANK } from "../../middleware/organizationAuth";
+import { notify } from "../notifications/notifications.service";
 import type { MembershipRole } from "@market-hub/shared";
 
 /** A location older than this is shown as stale rather than "current" —
@@ -92,7 +93,10 @@ export async function getDeliveryForViewer(deliveryId: string, viewerUserId: str
  * the delivery is theirs until DELIVERED/FAILED.
  */
 export async function assignDriver(deliveryId: string, actorUserId: string, driverEmail: string) {
-  const delivery = await prisma.delivery.findUnique({ where: { id: deliveryId }, select: { sellerOrganizationId: true, status: true } });
+  const delivery = await prisma.delivery.findUnique({
+    where: { id: deliveryId },
+    select: { sellerOrganizationId: true, status: true, buyerUserId: true },
+  });
   if (!delivery) {
     throw AppError.notFound("Delivery not found");
   }
@@ -123,11 +127,33 @@ export async function assignDriver(deliveryId: string, actorUserId: string, driv
     metadata: { driverUserId: driver.id },
   });
 
+  // The assigned driver and the buyer are the delivery's other two
+  // participants (the seller side already knows — they just did this).
+  await notify({
+    recipientUserId: driver.id,
+    type: "DELIVERY_DRIVER_ASSIGNED",
+    title: "New delivery assigned to you",
+    message: "You've been assigned to a delivery.",
+    relatedEntityType: "Delivery",
+    relatedEntityId: deliveryId,
+  });
+  await notify({
+    recipientUserId: delivery.buyerUserId,
+    type: "DELIVERY_DRIVER_ASSIGNED",
+    title: "A driver has been assigned",
+    message: "A driver has been assigned to deliver your order.",
+    relatedEntityType: "Delivery",
+    relatedEntityId: deliveryId,
+  });
+
   return getDeliveryForViewer(deliveryId, actorUserId);
 }
 
 async function assertAssignedDriver(deliveryId: string, driverUserId: string) {
-  const delivery = await prisma.delivery.findUnique({ where: { id: deliveryId }, select: { driverUserId: true, status: true, sellerOrganizationId: true } });
+  const delivery = await prisma.delivery.findUnique({
+    where: { id: deliveryId },
+    select: { driverUserId: true, status: true, sellerOrganizationId: true, buyerUserId: true },
+  });
   if (!delivery || delivery.driverUserId !== driverUserId) {
     // Identical to "doesn't exist" — a driver must never learn that a
     // delivery assigned to someone else exists (Rule: a driver must not
@@ -154,6 +180,15 @@ export async function markPickedUp(deliveryId: string, driverUserId: string) {
     action: "DELIVERY_PICKED_UP",
     targetType: "Delivery",
     targetId: deliveryId,
+  });
+
+  await notify({
+    recipientUserId: delivery.buyerUserId,
+    type: "DELIVERY_STATUS_CHANGED",
+    title: "Your order is in transit",
+    message: "Your delivery has been picked up and is on its way.",
+    relatedEntityType: "Delivery",
+    relatedEntityId: deliveryId,
   });
 
   return getDeliveryForViewer(deliveryId, driverUserId);
@@ -262,13 +297,25 @@ export async function confirmProofOfDelivery(
     targetId: deliveryId,
   });
 
+  await notify({
+    recipientUserId: delivery.buyerUserId,
+    type: "DELIVERY_STATUS_CHANGED",
+    title: "Your order has been delivered",
+    message: "Your delivery was marked as delivered.",
+    relatedEntityType: "Delivery",
+    relatedEntityId: deliveryId,
+  });
+
   return getDeliveryForViewer(deliveryId, driverUserId);
 }
 
 /** The assigned driver, or seller MANAGER+ (the driver may be
  * unreachable), may report a failed delivery. */
 export async function markDeliveryFailed(deliveryId: string, actorUserId: string, reason: string) {
-  const delivery = await prisma.delivery.findUnique({ where: { id: deliveryId }, select: { driverUserId: true, status: true, sellerOrganizationId: true } });
+  const delivery = await prisma.delivery.findUnique({
+    where: { id: deliveryId },
+    select: { driverUserId: true, status: true, sellerOrganizationId: true, buyerUserId: true },
+  });
   if (!delivery) {
     throw AppError.notFound("Delivery not found");
   }
@@ -298,6 +345,28 @@ export async function markDeliveryFailed(deliveryId: string, actorUserId: string
   });
 
   logger.warn({ deliveryId, reason }, "Delivery marked failed");
+
+  await notify({
+    recipientUserId: delivery.buyerUserId,
+    type: "DELIVERY_STATUS_CHANGED",
+    title: "Delivery issue",
+    message: `Your delivery could not be completed: ${reason}`,
+    relatedEntityType: "Delivery",
+    relatedEntityId: deliveryId,
+  });
+  // If the seller (not the driver) reported the failure, the driver may not
+  // already know — tell them too. The reverse (driver reports it) needs no
+  // extra notification since they're the one who just did it.
+  if (!isDriver && delivery.driverUserId) {
+    await notify({
+      recipientUserId: delivery.driverUserId,
+      type: "DELIVERY_STATUS_CHANGED",
+      title: "Delivery marked failed",
+      message: `This delivery was marked failed: ${reason}`,
+      relatedEntityType: "Delivery",
+      relatedEntityId: deliveryId,
+    });
+  }
 
   return getDeliveryForViewer(deliveryId, actorUserId);
 }

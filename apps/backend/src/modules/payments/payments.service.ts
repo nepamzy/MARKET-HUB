@@ -3,6 +3,7 @@ import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
 import { consumeReservationForOrder } from "../inventory/inventory.service";
+import { notify } from "../notifications/notifications.service";
 import type { PaymentProviderClient } from "./paystack.provider";
 import { getPaystackProvider } from "./paystack.provider";
 
@@ -228,6 +229,23 @@ async function applyVerificationResult(
       // thanks to the terminal-state short-circuit above.
       await consumeReservationForOrder(tx, updated.orderId);
     }
+
+    // dedupeKey belt-and-suspenders against a genuine concurrent race
+    // between the webhook and a buyer poll both passing the terminal-
+    // state check above before either commits — the DB unique constraint
+    // is the real guarantee, not just "this is only called once."
+    await notify({
+      recipientUserId: updated.buyerUserId,
+      type: "PAYMENT_STATUS_CHANGED",
+      title: nextStatus === "SUCCESS" ? "Payment confirmed" : "Payment failed",
+      message:
+        nextStatus === "SUCCESS"
+          ? `Your payment for order ${updated.orderId.slice(0, 8)} was confirmed.`
+          : `Your payment for order ${updated.orderId.slice(0, 8)} failed.`,
+      relatedEntityType: "Order",
+      relatedEntityId: updated.orderId,
+      dedupeKey: `PAYMENT_STATUS_CHANGED:${paymentId}:${nextStatus}`,
+    });
 
     return updated;
   });
