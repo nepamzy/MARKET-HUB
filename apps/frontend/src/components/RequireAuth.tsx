@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { NotificationsProvider } from "@/lib/notifications-context";
 import { AppShell } from "./AppShell";
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -27,5 +28,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <NotificationsProvider>
+      <AppShell>{children}</AppShell>
+    </NotificationsProvider>
+  );
 }

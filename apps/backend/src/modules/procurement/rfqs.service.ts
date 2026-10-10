@@ -613,8 +613,11 @@ export async function awardRfq(organizationId: string, rfqId: string, actorUserI
     type: "AWARD_CREATED",
     title: "Your response was awarded",
     message: `Your response to RFQ ${rfqId.slice(0, 8)} was awarded.`,
-    relatedEntityType: "Award",
-    relatedEntityId: award.id,
+    // Points at the RFQ, not the Award row itself — there is no standalone
+    // Award detail page, but the winning supplier can always view the RFQ
+    // (they were targeted and responded to it) and see the award there.
+    relatedEntityType: "Rfq",
+    relatedEntityId: rfqId,
   });
 
   return award;

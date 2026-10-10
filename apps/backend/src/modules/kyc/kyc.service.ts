@@ -256,8 +256,12 @@ export async function reviewKycSubmission(
         type: "KYC_STATUS_CHANGED",
         title: "Business verification update",
         message: note ? `${DECISION_COPY[decision]} ${note}` : DECISION_COPY[decision],
-        relatedEntityType: "KYCSubmission",
-        relatedEntityId: submissionId,
+        // Points at the organization, not the submission itself — there is
+        // no standalone KYCSubmission detail page, but the organization's
+        // own page (which the submitter can always reach, whatever the
+        // decision) links on to onboarding/KYC status from there.
+        relatedEntityType: "Organization",
+        relatedEntityId: submission.organizationId,
         dedupeKey: `KYC_STATUS_CHANGED:${submissionId}:${decision}`,
       });
     }

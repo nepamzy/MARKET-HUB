@@ -2,6 +2,7 @@ import type {
   AccountStatus,
   BusinessType,
   MembershipRole,
+  NotificationType,
   OrganizationStatus,
   PermissionLevel,
   PermissionResource,
@@ -709,6 +710,27 @@ export interface AdminStats {
   fulfillments: { total: number; byStatus: Record<string, number> };
   deliveries: { total: number; byStatus: Record<string, number> };
   drivers: { total: number };
+}
+
+// --- Phase 13 frontend pass: Notifications --------------------------------
+
+export interface NotificationView {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  relatedEntityType: string | null;
+  relatedEntityId: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationListResponse {
+  notifications: NotificationView[];
+  page: number;
+  pageSize: number;
+  total: number;
+  unreadCount: number;
 }
 
 export interface AdminAuditLogEntry {

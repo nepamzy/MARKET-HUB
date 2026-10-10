@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { NotificationBell } from "./NotificationBell";
+import { ToastStack } from "./ToastStack";
 
 interface NavItem {
   href: string;
@@ -55,8 +57,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-background">
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-border bg-surface lg:flex">
-        <div className="flex h-16 items-center border-b border-border px-6">
+        <div className="flex h-16 items-center justify-between border-b border-border px-6">
           <span className="text-lg font-semibold text-navy">MARKET HUB</span>
+          <NotificationBell />
         </div>
         <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Primary">
           {navItems.map((item) => {
@@ -86,14 +89,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile top bar */}
       <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface px-4 lg:hidden">
         <span className="text-base font-semibold text-navy">MARKET HUB</span>
-        <button type="button" onClick={handleLogout} className="btn-tertiary px-2 py-1 text-sm">
-          Sign out
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <button type="button" onClick={handleLogout} className="btn-tertiary px-2 py-1 text-sm">
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="pb-20 lg:ml-64 lg:pb-0">
         <div className="mx-auto w-full max-w-content px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
       </main>
+
+      <ToastStack />
 
       {/* Mobile bottom navigation */}
       <nav
