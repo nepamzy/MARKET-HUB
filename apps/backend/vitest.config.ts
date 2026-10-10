@@ -17,6 +17,12 @@ export default defineConfig({
       JWT_ACCESS_TTL: "15m",
       JWT_REFRESH_TTL_DAYS: "30",
       CORS_ORIGINS: "http://localhost:3000",
+      // Phase 10 — Payments. A fixed test-only value so webhook signature
+      // tests can compute a genuine HMAC-SHA512 against it (pure crypto,
+      // no network dependency) and so PaystackProvider can be exercised
+      // end-to-end with the global fetch mocked at the network boundary
+      // only — never a shortcut inside payments.service.ts itself.
+      PAYSTACK_SECRET_KEY: "test-paystack-secret-do-not-use-in-production",
     },
   },
 });

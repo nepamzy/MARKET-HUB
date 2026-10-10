@@ -84,6 +84,46 @@ function OrganizationDetailContent() {
             <Link href={`/organizations/${organization.id}/members`} className="btn-secondary w-full">
               View members
             </Link>
+            <Link href={`/organizations/${organization.id}/orders`} className="btn-secondary w-full">
+              Orders
+            </Link>
+            <Link href={`/organizations/${organization.id}/requisitions`} className="btn-secondary w-full">
+              Requisitions
+            </Link>
+            <Link href={`/organizations/${organization.id}/rfqs`} className="btn-secondary w-full">
+              RFQs
+            </Link>
+            <Link href={`/organizations/${organization.id}/rfq-inbox`} className="btn-secondary w-full">
+              RFQ inbox
+            </Link>
+            <Link href={`/organizations/${organization.id}/purchase-orders`} className="btn-secondary w-full">
+              Purchase orders
+            </Link>
+            <Link href={`/organizations/${organization.id}/supplier-purchase-orders`} className="btn-secondary w-full">
+              Purchase orders received
+            </Link>
+            <Link href={`/organizations/${organization.id}/fulfillments`} className="btn-secondary w-full">
+              Fulfillment
+            </Link>
+            {(membershipRole === "OWNER" || membershipRole === "MANAGER") && (
+              <>
+                <Link href={`/organizations/${organization.id}/onboarding`} className="btn-secondary w-full">
+                  Business profile &amp; verification
+                </Link>
+                <Link href={`/organizations/${organization.id}/supplier-profile`} className="btn-secondary w-full">
+                  Supplier profile
+                </Link>
+                <Link href={`/organizations/${organization.id}/products`} className="btn-secondary w-full">
+                  Products
+                </Link>
+                <Link href={`/organizations/${organization.id}/inventory`} className="btn-secondary w-full">
+                  Inventory
+                </Link>
+                <Link href={`/organizations/${organization.id}/invites`} className="btn-secondary w-full">
+                  Invites &amp; join requests
+                </Link>
+              </>
+            )}
           </div>
         </section>
       </div>

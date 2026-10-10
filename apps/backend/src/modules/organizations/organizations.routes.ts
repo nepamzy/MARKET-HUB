@@ -4,6 +4,7 @@ import {
   addMemberSchema,
   createOrganizationSchema,
   transferOwnershipSchema,
+  updateMemberPermissionsSchema,
   updateMemberRoleSchema,
 } from "@market-hub/shared";
 import { AppError } from "../../lib/errors";
@@ -13,10 +14,12 @@ import { validate } from "../../middleware/validate";
 import {
   addMember,
   createOrganization,
+  getMemberPermissions,
   getOrganization,
   listMembers,
   removeMember,
   transferOwnership,
+  updateMemberPermissions,
   updateMemberRole,
   updateOrganizationName,
 } from "./organizations.service";
@@ -149,6 +152,43 @@ organizationsRouter.post(
     try {
       await transferOwnership(req.params.organizationId, req.user!.id, req.body.newOwnerUserId);
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Business-scoped permissions (Phase 0.1). Both endpoints require OWNER —
+// same boundary as role changes and removal, since granting/viewing another
+// member's access footprint is itself a sensitive membership operation.
+organizationsRouter.get(
+  "/:organizationId/members/:userId/permissions",
+  requireAuth,
+  requireOrganizationMembership("OWNER"),
+  async (req, res, next) => {
+    try {
+      const result = await getMemberPermissions(req.params.organizationId, req.params.userId);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+organizationsRouter.put(
+  "/:organizationId/members/:userId/permissions",
+  requireAuth,
+  requireOrganizationMembership("OWNER"),
+  validate(updateMemberPermissionsSchema),
+  async (req, res, next) => {
+    try {
+      const result = await updateMemberPermissions(
+        req.params.organizationId,
+        req.params.userId,
+        req.user!.id,
+        req.body
+      );
+      res.status(200).json(result);
     } catch (err) {
       next(err);
     }

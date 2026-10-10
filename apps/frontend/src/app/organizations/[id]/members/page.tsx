@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -142,13 +143,21 @@ function MembersContent() {
                 {canManage && (
                   <td className="px-4 py-3">
                     {member.role !== "OWNER" && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemove(member.user.id)}
-                        className="btn-tertiary px-0 text-sm text-danger"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href={`/organizations/${organizationId}/members/${member.user.id}/permissions`}
+                          className="btn-tertiary px-0 text-sm"
+                        >
+                          Permissions
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(member.user.id)}
+                          className="btn-tertiary px-0 text-sm text-danger"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     )}
                   </td>
                 )}

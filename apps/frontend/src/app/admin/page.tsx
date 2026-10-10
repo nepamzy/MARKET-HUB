@@ -1,27 +1,30 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RequirePlatformAdmin } from "@/components/RequirePlatformAdmin";
-import { FormAlert } from "@/components/FormAlert";
-import { StatusBadge } from "@/components/StatusBadge";
-import { ApiError } from "@/lib/api";
 import { useAuthedFetch } from "@/lib/use-authed-fetch";
-import type { Organization } from "@/lib/types";
-import type { VerificationStatus } from "@market-hub/shared";
-import { VERIFICATION_STATUSES } from "@market-hub/shared";
+import type { AdminStats } from "@/lib/types";
 
-function AdminContent() {
+function StatTile({ label, value, href }: { label: string; value: number; href: string }) {
+  return (
+    <Link href={href} className="card block hover:border-navy/40">
+      <p className="text-xs font-medium uppercase tracking-wide text-text-secondary">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-navy">{value.toLocaleString()}</p>
+    </Link>
+  );
+}
+
+function DashboardContent() {
   const authedFetch = useAuthedFetch();
-  const [organizations, setOrganizations] = useState<Organization[] | null>(null);
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await authedFetch<{ organizations: Organization[] }>("/admin/organizations?pageSize=50");
-      setOrganizations(res.organizations);
+      setStats(await authedFetch<AdminStats>("/admin/stats"));
     } catch {
-      setError("Could not load organizations.");
+      setError("Could not load platform statistics.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -30,81 +33,55 @@ function AdminContent() {
     load();
   }, [load]);
 
-  async function handleVerificationChange(organizationId: string, status: VerificationStatus) {
-    setActionError(null);
-    try {
-      await authedFetch(`/admin/organizations/${organizationId}/verification`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      await load();
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : "Could not update verification status.");
-    }
-  }
-
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-navy">Platform admin</h1>
+      <h1 className="text-2xl font-semibold text-navy">Platform overview</h1>
       <p className="mt-1 text-sm text-text-secondary">
-        Foundation-level operator view. Full admin operations are a later phase.
+        Real, live counts from the platform database. Nothing here is estimated or fabricated.
       </p>
 
       {error && <p className="mt-4 text-sm text-danger">{error}</p>}
-      {actionError && (
-        <div className="mt-4">
-          <FormAlert>{actionError}</FormAlert>
-        </div>
-      )}
+      {stats === null && !error && <p className="mt-6 text-sm text-text-secondary">Loading…</p>}
 
-      {organizations === null && !error && <p className="mt-6 text-sm text-text-secondary">Loading…</p>}
+      {stats && (
+        <>
+          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            <StatTile label="Organizations" value={stats.organizations.total} href="/admin/organizations" />
+            <StatTile label="Users" value={stats.users.total} href="/admin/users" />
+            <StatTile label="KYC pending review" value={stats.kyc.pendingReview} href="/admin/kyc" />
+            <StatTile label="Discoverable suppliers" value={stats.directory.discoverable} href="/admin/directory" />
+            <StatTile label="Products" value={stats.products.total} href="/admin/products" />
+            <StatTile label="Orders" value={stats.orders.total} href="/admin/orders" />
+            <StatTile label="Payments" value={stats.payments.total} href="/admin/payments" />
+            <StatTile label="Products tracked" value={stats.inventory.total} href="/admin/inventory" />
+            <StatTile label="Fulfillments" value={stats.fulfillments.total} href="/admin/fulfillment" />
+            <StatTile label="Deliveries" value={stats.deliveries.total} href="/admin/fulfillment" />
+            <StatTile label="Drivers" value={stats.drivers.total} href="/admin/users" />
+            <StatTile label="RFQs" value={stats.rfqs.total} href="/admin/rfqs" />
+            <StatTile label="Purchase orders" value={stats.purchaseOrders.total} href="/admin/purchase-orders" />
+          </div>
 
-      {organizations && (
-        <div className="mt-6 overflow-x-auto rounded-card border border-border bg-surface">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-text-secondary">
-                <th className="px-4 py-3 font-medium">Organization</th>
-                <th className="px-4 py-3 font-medium">Business type</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Verification</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {organizations.map((org) => (
-                <tr key={org.id}>
-                  <td className="px-4 py-3 font-medium text-text-primary">{org.legalName}</td>
-                  <td className="px-4 py-3 text-text-secondary">{org.businessType.replace(/_/g, " ")}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={org.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      className="field-input py-1.5 text-sm"
-                      value={org.verificationStatus}
-                      onChange={(e) => handleVerificationChange(org.id, e.target.value as VerificationStatus)}
-                    >
-                      {VERIFICATION_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
+          <section className="card mt-6">
+            <h2 className="text-sm font-semibold text-text-primary">Organizations by verification status</h2>
+            <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {Object.entries(stats.organizations.byVerification).map(([status, count]) => (
+                <div key={status}>
+                  <dt className="text-xs text-text-secondary">{status.replace(/_/g, " ")}</dt>
+                  <dd className="text-lg font-semibold text-text-primary">{count.toLocaleString()}</dd>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </dl>
+          </section>
+        </>
       )}
     </div>
   );
 }
 
-export default function AdminPage() {
+export default function AdminDashboardPage() {
   return (
     <RequirePlatformAdmin>
-      <AdminContent />
+      <DashboardContent />
     </RequirePlatformAdmin>
   );
 }

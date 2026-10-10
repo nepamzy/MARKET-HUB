@@ -1,7 +1,9 @@
-import type { CreateOrganizationInput, MembershipRole } from "@market-hub/shared";
+import type { CreateOrganizationInput, MembershipRole, PermissionLevel, PermissionResource } from "@market-hub/shared";
+import { PERMISSION_RESOURCES } from "@market-hub/shared";
 import { recordAudit } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
 import { prisma } from "../../lib/prisma";
+import { resolvePermissionLevel } from "../../lib/permissions";
 
 export const ORGANIZATION_SELECT = {
   id: true,
@@ -214,4 +216,86 @@ export async function transferOwnership(organizationId: string, actorUserId: str
     targetType: "User",
     targetId: newOwnerUserId,
   });
+}
+
+/**
+ * Returns the resolved permission level for every resource for a given
+ * member — i.e. what's actually in effect right now (override or role
+ * default), not just the raw override rows. This is what the owner's
+ * permission-editor UI reads to render current state.
+ */
+export async function getMemberPermissions(organizationId: string, targetUserId: string) {
+  const membership = await prisma.organizationMembership.findUnique({
+    where: { organizationId_userId: { organizationId, userId: targetUserId } },
+    select: { id: true, role: true },
+  });
+  if (!membership) {
+    throw AppError.notFound("Membership not found");
+  }
+
+  const entries = await Promise.all(
+    PERMISSION_RESOURCES.map(async (resource) => [resource, await resolvePermissionLevel(membership, resource)] as const)
+  );
+
+  return {
+    role: membership.role,
+    permissions: Object.fromEntries(entries) as Record<PermissionResource, PermissionLevel>,
+  };
+}
+
+/**
+ * Applies a partial set of permission overrides for one member. Two
+ * deliberate guardrails beyond "does the caller have MANAGER+ role",
+ * enforced by the route's requireOrganizationMembership("OWNER") already
+ * covering who may call this at all:
+ *  - OWNER-role members can't have their permissions edited — ownership is
+ *    never a partial access level (same principle as updateMemberRole).
+ *  - A member can't edit their own permissions — closes the trivial
+ *    self-escalation path even for an OWNER acting on themselves, since an
+ *    OWNER calling this on their own userId would otherwise be a confusing
+ *    no-op at best.
+ */
+export async function updateMemberPermissions(
+  organizationId: string,
+  targetUserId: string,
+  actorUserId: string,
+  updates: Partial<Record<PermissionResource, PermissionLevel>>
+) {
+  if (actorUserId === targetUserId) {
+    throw AppError.badRequest("You cannot modify your own permissions");
+  }
+
+  const membership = await prisma.organizationMembership.findUnique({
+    where: { organizationId_userId: { organizationId, userId: targetUserId } },
+    select: { id: true, role: true },
+  });
+  if (!membership) {
+    throw AppError.notFound("Membership not found");
+  }
+  if (membership.role === "OWNER") {
+    throw AppError.badRequest("Owner permissions cannot be modified");
+  }
+
+  const changes = Object.entries(updates) as [PermissionResource, PermissionLevel][];
+
+  await prisma.$transaction(
+    changes.map(([resource, level]) =>
+      prisma.membershipPermission.upsert({
+        where: { membershipId_resource: { membershipId: membership.id, resource } },
+        create: { membershipId: membership.id, resource, level, grantedByUserId: actorUserId },
+        update: { level, grantedByUserId: actorUserId },
+      })
+    )
+  );
+
+  await recordAudit({
+    actorUserId,
+    organizationId,
+    action: "MEMBER_PERMISSIONS_UPDATED",
+    targetType: "User",
+    targetId: targetUserId,
+    metadata: { changes: updates },
+  });
+
+  return getMemberPermissions(organizationId, targetUserId);
 }
